@@ -3,20 +3,23 @@
 
 //SERIALIZATION
 
-int serialize_connect_request(const char* password, uint8_t* out_buffer) {
+int serialize_connect_request(const char* appID, const char* password, uint8_t* out_buffer) {
     uint8_t pass_len = (uint8_t)strlen(password);
-    
+    uint8_t appID_len = (uint8_t)strlen(appID);
     out_buffer[0] = 10; // type
     out_buffer[1] = pass_len; // length
-    memcpy(out_buffer + 2, password, pass_len); // payload
+    memset(out_buffer + 2, 0, APPID_FIXED_LENGTH);
+    memcpy(out_buffer + 2 + APPID_FIXED_LENGTH - appID_len, appID, appID_len); 
+    memcpy(out_buffer + 2 + APPID_FIXED_LENGTH, password, pass_len); // payload
     
-    return 2 + pass_len; // Tổng kích thước packet
+    return 2 + APPID_FIXED_LENGTH +pass_len; // Tổng kích thước packet
 }
 
 int serialize_connect_response(uint32_t token, uint8_t* out_buffer) {
     out_buffer[0] = 11; // type
     out_buffer[1] = 4;  // length
-    memcpy(out_buffer + 2, &token, 4); 
+    uint32_t net_token = htonl(token); // chuyển token sang network byte order
+    memcpy(out_buffer + 2, &net_token, 4);
     
     return 2 + 4; // 6 bytes
 }
@@ -24,7 +27,8 @@ int serialize_connect_response(uint32_t token, uint8_t* out_buffer) {
 int serialize_scan_request(uint32_t token, uint8_t* out_buffer) {
     out_buffer[0] = 20; // type
     out_buffer[1] = 4;  // length
-    memcpy(out_buffer + 2, &token, 4); // payload
+    uint32_t net_token = htonl(token); // chuyển token sang network byte order
+    memcpy(out_buffer + 2, &net_token, 4); // payload
     
     return 2 + 4; // 6 bytes
 }
@@ -45,7 +49,8 @@ int serialize_scan_response(uint8_t num_devices, const uint8_t* device_ids, uint
 int serialize_info_request(uint32_t token, uint8_t* out_buffer) {
     out_buffer[0] = 30; // type
     out_buffer[1] = 4;  // length
-    memcpy(out_buffer + 2, &token, 4); // payload
+    uint32_t net_token = htonl(token); // chuyển token sang network byte order
+    memcpy(out_buffer + 2, &net_token, 4); // payload
     
     return 2 + 4; // 6 bytes
 }
@@ -86,91 +91,196 @@ int serialize_info_response(const InfoResponse* info_data, uint8_t* out_buffer) 
 }
 
 //DESERIALIZATION
-
 int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* out_packet) {
     if (buffer_len < 2) {
-        return -1; // Lỗi: Không đủ header
+        return -1; // Không đủ header
     }
-    
+
     out_packet->type = in_buffer[0];
     out_packet->length = in_buffer[1];
-    
+
     const uint8_t* payload = in_buffer + 2;
     uint8_t payload_len = out_packet->length;
-    
+
     if (buffer_len < 2 + payload_len) {
-        return -1; // Lỗi: Packet không hoàn chỉnh
+        return -1; // Packet không hoàn chỉnh
     }
-    
-    // Xử lý dựa trên type
+
     switch (out_packet->type) {
-        case 10: // Connect Request
-            // Truncate nếu mật khẩu quá dài
-            out_packet->data.connect_req.pass_len = (payload_len >= sizeof(out_packet->data.connect_req.password)) ? 
-                                                    sizeof(out_packet->data.connect_req.password) - 1 : payload_len;
-            memcpy(out_packet->data.connect_req.password, payload, out_packet->data.connect_req.pass_len);
-            out_packet->data.connect_req.password[out_packet->data.connect_req.pass_len] = '\0'; // null-terminate
+
+        //------------------------------
+        // 10 - Connect Request
+        //------------------------------
+        case MSG_TYPE_CONNECT_CLIENT: {
+            uint8_t pass_len = out_packet->length - APPID_FIXED_LENGTH;
+            const uint8_t* appID_ptr = payload;
+            const uint8_t* pass_ptr = appID_ptr + APPID_FIXED_LENGTH;
+
+            int first_nonzero = 0;
+            while (first_nonzero < APPID_FIXED_LENGTH && appID_ptr[first_nonzero] == 0)
+                first_nonzero++;
+
+            int appID_len = APPID_FIXED_LENGTH - first_nonzero;
+            memcpy(out_packet->data.connect_req.appID, appID_ptr + first_nonzero, appID_len);
+            out_packet->data.connect_req.appID[appID_len] = '\0';
+
+            out_packet->data.connect_req.pass_len =
+                (pass_len >= sizeof(out_packet->data.connect_req.password))
+                    ? sizeof(out_packet->data.connect_req.password) - 1
+                    : pass_len;
+
+            memcpy(out_packet->data.connect_req.password,
+                   pass_ptr,
+                   out_packet->data.connect_req.pass_len);
+            out_packet->data.connect_req.password[out_packet->data.connect_req.pass_len] = '\0';
             break;
-            
-        case 11: // Connect Response
-            if (payload_len != 4) return -1; // Lỗi: Sai length
+        }
+
+        //------------------------------
+        // 11 - Connect Response
+        //------------------------------
+        case MSG_TYPE_CONNECT_SERVER: {
+            if (payload_len != 4) return -1;
             memcpy(&out_packet->data.connect_res.token, payload, 4);
             break;
-            
-        case 20: // Scan Request
-            if (payload_len != 4) return -1; // Lỗi: Sai length
+        }
+
+        //------------------------------
+        // 20 - Scan Request
+        //------------------------------
+        case MSG_TYPE_SCAN_CLIENT: {
+            if (payload_len != 4) return -1;
             memcpy(&out_packet->data.scan_req.token, payload, 4);
             break;
-            
-        case 21: // Scan Response
-            if (payload_len < 1) return -1; // Lỗi: Phải có ít nhất 'n'
-            out_packet->data.scan_res.num_devices = payload[0]; // n
-            if (payload_len != (1 + out_packet->data.scan_res.num_devices)) return -1; // Lỗi: length không khớp
-            if (out_packet->data.scan_res.num_devices > MAX_DEVICES) return -1; // Lỗi: Quá nhiều thiết bị
-            
-            memcpy(out_packet->data.scan_res.device_ids, payload + 1, out_packet->data.scan_res.num_devices);
+        }
+
+        //------------------------------
+        // 21 - Scan Response
+        //------------------------------
+        case MSG_TYPE_SCAN_SERVER: {
+            if (payload_len < 1) return -1;
+            out_packet->data.scan_res.num_devices = payload[0];
+
+            if (out_packet->data.scan_res.num_devices > MAX_DEVICES) return -1;
+            if (payload_len != 1 + out_packet->data.scan_res.num_devices) return -1;
+
+            memcpy(out_packet->data.scan_res.device_ids,
+                   payload + 1,
+                   out_packet->data.scan_res.num_devices);
             break;
-            
-        case 30: // Info Request
-            if (payload_len != 4) return -1; // Lỗi: Sai length
+        }
+
+        //------------------------------
+        // 30 - Info Request
+        //------------------------------
+        case MSG_TYPE_INFO_CLIENT: {
+            if (payload_len != 4) return -1;
             memcpy(&out_packet->data.info_req.token, payload, 4);
             break;
-            
-        case 31: // Info Response
-            {
-                int offset = 0;
-                if (payload_len < 1) return -1; // Lỗi: Phải có n1
-                
-                out_packet->data.info_res.num_gardens = payload[offset]; // n1
-                offset++;
-                
-                if (out_packet->data.info_res.num_gardens > MAX_GARDENS) return -1; // Lỗi: Quá nhiều vườn
-                
-                for (int i = 0; i < out_packet->data.info_res.num_gardens; i++) {
-                    if (offset + 2 > payload_len) return -1; // Lỗi: Thiếu dữ liệu cho id_vườn +
-                    
-                    GardenInfo* garden = &out_packet->data.info_res.gardens[i];
-                    garden->garden_id = payload[offset];
-                    offset++;
-                    garden->num_devices = payload[offset];
-                    offset++;
-                    
-                    if (garden->num_devices > MAX_DEVICES) return -1; // Lỗi: Quá nhiều thiết bị
-                    if (offset + garden->num_devices > payload_len) return -1; // Lỗi: Thiếu dữ liệu
-                    
-                    for (int j = 0; j < garden->num_devices; j++) {
-                        garden->devices[j].device_id = payload[offset];
-                        offset++;
-                    }
+        }
+
+        //------------------------------
+        // 31 - Info Response
+        //------------------------------
+        case MSG_TYPE_INFO_SERVER: {
+            int offset = 0;
+            if (payload_len < 1) return -1;
+
+            out_packet->data.info_res.num_gardens = payload[offset++];
+            if (out_packet->data.info_res.num_gardens > MAX_GARDENS) return -1;
+
+            for (int i = 0; i < out_packet->data.info_res.num_gardens; i++) {
+                if (offset + 2 > payload_len) return -1;
+
+                GardenInfo* garden = &out_packet->data.info_res.gardens[i];
+                garden->garden_id = payload[offset++];
+                garden->num_devices = payload[offset++];
+
+                if (garden->num_devices > MAX_DEVICES) return -1;
+                if (offset + garden->num_devices > payload_len) return -1;
+
+                for (int j = 0; j < garden->num_devices; j++) {
+                    garden->devices[j].device_id = payload[offset++];
                 }
-                
-                if (offset != payload_len) return -1; 
             }
+
+            if (offset != payload_len) return -1;
             break;
-            
+        }
+
+        //------------------------------
+        // 80 - Garden Add
+        //------------------------------
+        case MSG_TYPE_GARDEN_ADD: {
+            if (payload_len < 1) return -1;
+            out_packet->data.garden_add.garden_id = payload[0];
+            break;
+        }
+
+        //------------------------------
+        // 81 - Garden Delete
+        //------------------------------
+        case MSG_TYPE_GARDEN_DEL: {
+            if (payload_len < 1) return -1;
+            out_packet->data.garden_del.garden_id = payload[0];
+            break;
+        }
+
+        //------------------------------
+        // 90 - Device Add
+        //------------------------------
+        case MSG_TYPE_DEVICE_ADD: {
+            if (payload_len < 2) return -1;
+            out_packet->data.device_add.garden_id = payload[0];
+            out_packet->data.device_add.device_id = payload[1];
+            break;
+        }
+
+        //------------------------------
+        // 91 - Device Delete
+        //------------------------------
+        case MSG_TYPE_DEVICE_DEL: {
+            if (payload_len < 2) return -1;
+            out_packet->data.device_del.garden_id = payload[0];
+            out_packet->data.device_del.device_id = payload[1];
+            break;
+        }
+
+        //------------------------------
+        // 100 - Data 
+        //------------------------------
+        case MSG_TYPE_DATA: {
+            if (payload_len < sizeof(DeviceInfo)) return -1;
+            memcpy(&out_packet->data.device_data, payload, sizeof(DeviceInfo));
+            break;
+        }
+
+        //------------------------------
+        // 200 - Alert 
+        //------------------------------
+        case MSG_TYPE_ALERT: {
+            if (payload_len < 2) return -1;
+            out_packet->data.alert.device_id = payload[0];
+            out_packet->data.alert.code = payload[1];
+            break;
+        }
+
+        //------------------------------
+        // 254 - Command Response
+        //------------------------------
+        case MSG_TYPE_CMD_RESPONSE: {
+            if (payload_len < 2) return -1;
+            out_packet->data.cmd_res.device_id = payload[0];
+            out_packet->data.cmd_res.status = payload[1];
+            break;
+        }
+
+        //------------------------------
+        // Unknown type
+        //------------------------------
         default:
-            return -1; // Lỗi: Type không xác định
+            return -1;
     }
-    
-    return 0; 
+
+    return 0;
 }

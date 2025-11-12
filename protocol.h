@@ -4,16 +4,54 @@
 #include <stdint.h> 
 #include <string.h> 
 #include <stdlib.h> 
+#include <arpa/inet.h>
 
-// Kích thước buffer tối đa, bạn có thể thay đổi
-#define MAX_BUFFER_SIZE 256
-#define MAX_DEVICES 50
-#define MAX_GARDENS 10
+// MESSAGE TYPES
+#define MSG_TYPE_CONNECT_CLIENT             10          // 0x0A
+#define MSG_TYPE_CONNECT_SERVER             11          // 0x0B
+#define MSG_TYPE_SCAN_CLIENT                20          // 0x14
+#define MSG_TYPE_SCAN_SERVER                21          // 0x15
+#define MSG_TYPE_INFO_CLIENT                30          // 0x1E
+#define MSG_TYPE_INFO_SERVER                31          // 0x1F
+#define MSG_TYPE_DATA                       100         // 0x64
+#define MSG_TYPE_ALERT                      200         // 0xC8
+#define MSG_TYPE_CMD_RESPONSE               254         // 0xFE
+#define MSG_TYPE_GARDEN_ADD                 80          // 0x50 
+#define MSG_TYPE_GARDEN_DEL                 81          // 0x51 
+#define MSG_TYPE_DEVICE_ADD                 90          // 0x5A 
+#define MSG_TYPE_DEVICE_DEL                 91          // 0x5B 
+
+//CMD_RESPONSE      
+#define STATUS_OK                           0x00         // Thành công
+#define STATUS_ERR_FAILED                   0x01         // Lỗi chung, không xác định
+#define STATUS_ERR_INVALID_TOKEN            0x02         // Token không hợp lệ hoặc hết hạn
+#define STATUS_ERR_INVALID_DEVICE           0x03         // Device ID không tồn tại / Offline
+#define STATUS_ERR_INVALID_PARAM            0x04         // Param ID hoặc giá trị Param không hợp lệ
+#define STATUS_ERR_INVALID_SLOT             0x05         // Schedule Slot ID không hợp lệ
+#define STATUS_ERR_WRONG_PASSWORD           0x06         // Sai mật khẩu (cho Type 10)
+#define STATUS_ERR_MALFORMED                0x07         // Gói tin Client gửi bị sai cấu trúc
+#define STATUS_ERR_INVALID_GARDEN           0x08         // Garden ID không tồn tại / Duplicate
+
+//ALERT CODES       
+#define ALERT_WATERING_START                0x10         // Bơm bắt đầu tưới
+#define ALERT_WATERING_END                  0x11         // Bơm đã tưới xong
+#define ALERT_FERTILIZE_START               0x12         // Bắt đầu bón phân
+#define ALERT_FERTILIZE_END                 0x13         // Bón phân xong
+#define ALERT_LIGHTS_ON                     0x20         // Đèn đã bật
+#define ALERT_LIGHTS_OFF                    0x21         // Đèn đã tắt
+
+
+// Kích thước buffer tối đa
+#define MAX_BUFFER_SIZE                     256
+#define MAX_DEVICES                         50
+#define MAX_GARDENS                         10
+#define APPID_FIXED_LENGTH                  8
 
 // --- Cấu trúc cho dữ liệu đã giải gói tin ---
 
 // 1. Connect
 typedef struct {
+    char appID[APPID_FIXED_LENGTH + 1];
     char password[MAX_BUFFER_SIZE - 2]; // Buffer để chứa mật khẩu
     uint8_t pass_len;
 } ConnectRequest;
@@ -52,6 +90,55 @@ typedef struct {
     GardenInfo gardens[MAX_GARDENS];
 } InfoResponse;
 
+// 4. DATA 
+typedef struct {
+    uint8_t  dev_id;
+    uint32_t timestamp; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  humidity;
+    uint8_t  n_level;
+    uint8_t  p_level;
+    uint8_t  k_level;
+} IntervalData;
+
+// 5. ALERT 
+typedef struct {
+    uint32_t timestamp; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  alert_code;
+    uint8_t  dev_id;
+    uint8_t  alert_value;
+} Alert; 
+
+// 6. CMD_RESPONSE 
+typedef struct {
+    uint8_t status_code;
+} CmdResponse; 
+
+// 7. Add Garden
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  garden_id;
+} GardenAdd; 
+
+// 8. Delete Garden
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  garden_id;
+} GardenDel; 
+
+
+// 9. Add Device 
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  garden_id;
+    uint8_t  dev_id;
+} DeviceAdd; 
+
+// 10. Delete Device (Type 91)
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  garden_id;
+    uint8_t  dev_id;
+} DeviceDel; 
 // Cấu trúc packet tổng quát sau khi giải gói tin
 typedef struct {
     uint8_t type;
@@ -63,6 +150,13 @@ typedef struct {
         ScanResponse scan_res;
         InfoRequest info_req;
         InfoResponse info_res;
+        IntervalData inteval_data;
+        Alert alert;
+        CmdResponse cmd_response;
+        GardenAdd garden_add;
+        GardenDel garden_del;
+        DeviceAdd device_add;
+        DeviceDel device_del; 
     } data;
 } ParsedPacket;
 
@@ -72,7 +166,7 @@ typedef struct {
  * @brief Gói tin Connect Request (Client -> Server)
  * @return Tổng số byte đã ghi vào buffer
  */
-int serialize_connect_request(const char* password, uint8_t* out_buffer);
+int serialize_connect_request(const char* appID, const char* password, uint8_t* out_buffer);
 
 /**
  * @brief Gói tin Connect Response (Server -> Client)

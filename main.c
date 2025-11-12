@@ -16,7 +16,7 @@ int main() {
     
     // --- VÍ DỤ 1: CONNECT ---
     // Client gói tin
-    packet_len = serialize_connect_request("my_secret_pass", send_buffer);
+    packet_len = serialize_connect_request("chidan", "my_secret_pass", send_buffer);
     print_buffer("Client send: Connect Request", send_buffer, packet_len);
     
     // Server nhận và giải gói tin
