@@ -6,8 +6,8 @@
 int serialize_connect_request(const char* appID, const char* password, uint8_t* out_buffer) {
     uint8_t pass_len = (uint8_t)strlen(password);
     uint8_t appID_len = (uint8_t)strlen(appID);
-    out_buffer[0] = 10; // type
-    out_buffer[1] = pass_len; // length
+    out_buffer[0] = MSG_TYPE_CONNECT_CLIENT; // type
+    out_buffer[1] = pass_len + appID_len; // length
     memset(out_buffer + 2, 0, APPID_FIXED_LENGTH);
     memcpy(out_buffer + 2 + APPID_FIXED_LENGTH - appID_len, appID, appID_len); 
     memcpy(out_buffer + 2 + APPID_FIXED_LENGTH, password, pass_len); // payload
@@ -16,7 +16,7 @@ int serialize_connect_request(const char* appID, const char* password, uint8_t* 
 }
 
 int serialize_connect_response(uint32_t token, uint8_t* out_buffer) {
-    out_buffer[0] = 11; // type
+    out_buffer[0] = MSG_TYPE_CONNECT_SERVER; // type
     out_buffer[1] = 4;  // length
     uint32_t net_token = htonl(token); // chuyển token sang network byte order
     memcpy(out_buffer + 2, &net_token, 4);
@@ -141,7 +141,9 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         //------------------------------
         case MSG_TYPE_CONNECT_SERVER: {
             if (payload_len != 4) return -1;
-            memcpy(&out_packet->data.connect_res.token, payload, 4);
+            uint32_t net_token;
+            memcpy(&net_token, payload, 4);
+            out_packet->data.connect_res.token = ntohl(net_token);
             break;
         }
 
@@ -232,7 +234,7 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         case MSG_TYPE_DEVICE_ADD: {
             if (payload_len < 2) return -1;
             out_packet->data.device_add.garden_id = payload[0];
-            out_packet->data.device_add.device_id = payload[1];
+            out_packet->data.device_add.dev_id = payload[1];
             break;
         }
 
@@ -242,7 +244,7 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         case MSG_TYPE_DEVICE_DEL: {
             if (payload_len < 2) return -1;
             out_packet->data.device_del.garden_id = payload[0];
-            out_packet->data.device_del.device_id = payload[1];
+            out_packet->data.device_del.dev_id = payload[1];
             break;
         }
 
@@ -251,7 +253,7 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         //------------------------------
         case MSG_TYPE_DATA: {
             if (payload_len < sizeof(DeviceInfo)) return -1;
-            memcpy(&out_packet->data.device_data, payload, sizeof(DeviceInfo));
+            memcpy(&out_packet->data.inteval_data, payload, sizeof(DeviceInfo));
             break;
         }
 
@@ -260,8 +262,8 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         //------------------------------
         case MSG_TYPE_ALERT: {
             if (payload_len < 2) return -1;
-            out_packet->data.alert.device_id = payload[0];
-            out_packet->data.alert.code = payload[1];
+            out_packet->data.alert.dev_id = payload[0];
+            out_packet->data.alert.alert_code = payload[1];
             break;
         }
 
@@ -270,8 +272,7 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         //------------------------------
         case MSG_TYPE_CMD_RESPONSE: {
             if (payload_len < 2) return -1;
-            out_packet->data.cmd_res.device_id = payload[0];
-            out_packet->data.cmd_res.status = payload[1];
+            out_packet->data.cmd_response.status_code = payload[0];
             break;
         }
 
