@@ -34,11 +34,19 @@ struct App{
     uint32_t token;
 };
 
+// --- Data structures ---
 vector<App> apps;
 mutex apps_mutex;
 
-map<string, string> app_credentials;
+map<string, string> app_credentials;          // AppID -> password
 mutex credentials_mutex;
+
+map<string, vector<uint8_t>> gardens;         // AppID -> list of GardenID
+mutex gardens_mutex;
+
+map<uint8_t, uint8_t> device_to_garden;       // DeviceID -> GardenID
+mutex devices_mutex;
+
 App* findAppByToken(uint32_t token) {
     lock_guard<mutex> lock(apps_mutex);
     for (int i = 0; i < apps.size(); i++) {
@@ -55,6 +63,21 @@ App* findAppByAppID(const string& appID){
             return &apps[i];
     }
     return nullptr;
+}
+
+vector<uint8_t> get_unassigned_devices_string() {
+    vector<uint8_t> unassigned;
+
+    {
+        lock_guard<mutex> lock(devices_mutex);
+        for (const auto& [deviceID, gardenID] : device_to_garden) {
+            if (gardenID == 0) { // 0 nghĩa là chưa thuộc garden nào
+                unassigned.push_back(deviceID);
+            }
+        }
+    }
+
+    return unassigned;
 }
 
 uint32_t random_token() {
@@ -83,7 +106,6 @@ bool authenticate_app(const string& appID, const string& password) {
 
 void handle_connect_request(int client_fd, const ConnectRequest& req, uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len, uint32_t& token) {
     print_buffer("Server receive: Connect Request", recv_buffer, sizeof(recv_buffer));
-    cout << "Client " << client_fd << " request\n";
     cout << "AppID: " << req.appID << endl;
     cout << "Password: " << req.password << "\n\n";
 
@@ -123,6 +145,32 @@ void handle_unknown_packet(int client_fd, uint8_t type, uint8_t* send_buffer, in
     cout << "Unknown type: " << (int)type << endl;
 }
 
+void handle_scan_request(int client_fd, const ScanRequest& req,
+                         uint8_t* send_buffer, const uint8_t* recv_buffer,
+                         int& packet_len, uint32_t token){
+    cout << "Handling scan request from token: " << req.token << endl;
+    print_buffer("Server receive: Scan Request", recv_buffer, sizeof(recv_buffer));
+
+    App* app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    vector<uint8_t> unassigned = get_unassigned_devices_string();
+
+    packet_len = serialize_scan_response(
+        unassigned.size(), // số lượng device
+        unassigned.data(), // con trỏ const uint8_t*
+        send_buffer
+    );
+
+    print_buffer("Server send: Scan Response", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+}
 
 void client_handler(int client_fd) {
     uint8_t send_buffer[MAX_BUFFER_SIZE];
@@ -134,13 +182,15 @@ void client_handler(int client_fd) {
 
     while ((packet_len = recv(client_fd, recv_buffer, MAX_BUFFER_SIZE, 0)) > 0) {
     ParsedPacket packet;
-
+        cout << "Client " << client_fd << " request\n";
         if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
             switch (packet.type) {
                 case MSG_TYPE_CONNECT_CLIENT:
                     handle_connect_request(client_fd, packet.data.connect_req, send_buffer,recv_buffer, packet_len, token);
                     break;
-
+                case MSG_TYPE_SCAN_CLIENT: 
+                    handle_scan_request(client_fd, packet.data.scan_req, send_buffer,recv_buffer, packet_len, token);
+                    break;
                 default:
                     handle_unknown_packet(client_fd, packet.type, send_buffer, packet_len);
                     break;
@@ -167,26 +217,64 @@ void client_handler(int client_fd) {
 }
 
 
-void seed(){
-    ifstream infile("apps.txt"); 
-
-    if (!infile) {
-        cerr << "Cannot open file!" << endl;
-        return;
-    }
-
-    string line;
-    while (getline(infile, line)) {
-        istringstream iss(line);
-        string appID, password;
-        if (iss >> appID >> password) {
-            cout << "AppID: " << appID << ", Password: " << password << endl;
+void seed() {
+    // --- 1. Read apps.txt ---
+    ifstream apps_file("apps.txt");
+    if (!apps_file) {
+        cerr << "Cannot open apps.txt!" << endl;
+    } else {
+        string line;
+        while (getline(apps_file, line)) {
+            if (line.empty()) continue;
+            istringstream iss(line);
+            string appID, password;
+            if (iss >> appID >> password) {
+                lock_guard<mutex> lock(credentials_mutex);
+                app_credentials[appID] = password;
+                cout << "App loaded: " << appID << ", Password: " << password << endl;
+            }
         }
-        app_credentials[appID] = password;
+        apps_file.close();
     }
 
-    infile.close(); // đóng file
+    // --- 2. Read garden.txt ---
+    ifstream garden_file("garden.txt");
+    if (!garden_file) {
+        cerr << "Cannot open garden.txt!" << endl;
+    } else {
+        string line;
+        while (getline(garden_file, line)) {
+            if (line.empty()) continue;
+            istringstream iss(line);
+            string appID;
+            uint32_t gardenID;
+            if (iss >> appID >> gardenID) {
+                lock_guard<mutex> lock(gardens_mutex);
+                gardens[appID].push_back(static_cast<uint8_t>(gardenID));
+                cout << "Garden loaded: AppID=" << appID << ", GardenID=" << gardenID << endl;
+            }
+        }
+        garden_file.close();
+    }
 
+    // --- 3. Read device.txt ---
+    ifstream device_file("device.txt");
+    if (!device_file) {
+        cerr << "Cannot open device.txt!" << endl;
+    } else {
+        string line;
+        while (getline(device_file, line)) {
+            if (line.empty()) continue;
+            istringstream iss(line);
+            uint32_t deviceID, gardenID;
+            if (iss >> deviceID >> gardenID) {
+                lock_guard<mutex> lock(devices_mutex);
+                device_to_garden[static_cast<uint8_t>(deviceID)] = static_cast<uint8_t>(gardenID);
+                cout << "Device loaded: DeviceID=" << deviceID << ", GardenID=" << gardenID << endl;
+            }
+        }
+        device_file.close();
+    }
 }
 
 int main() {

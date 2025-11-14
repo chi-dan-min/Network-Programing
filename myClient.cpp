@@ -75,6 +75,61 @@ void print_status_message(uint8_t status_code) {
     }
 }
 
+bool client_scan(int sockfd, uint32_t token) {
+    uint8_t send_buffer[MAX_BUFFER_SIZE];
+    uint8_t recv_buffer[MAX_BUFFER_SIZE];
+    int packet_len;
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+    memset(recv_buffer, 0, sizeof(recv_buffer));
+
+    // --- Gửi Scan Request ---
+    packet_len = serialize_scan_request(token, send_buffer);
+    print_buffer("Client send: Scan Request", send_buffer, packet_len);
+    if (send(sockfd, send_buffer, packet_len, 0) <= 0) {
+        cerr << "Failed to send Scan Request.\n";
+        return false;
+    }
+
+    // --- Nhận Scan Response ---
+    packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
+    if (packet_len <= 0) {
+        cerr << "Server disconnected.\n";
+        return false;
+    }
+
+    print_buffer("Client receive: Scan Response", recv_buffer, packet_len);
+
+    ParsedPacket packet;
+    if (deserialize_packet(recv_buffer, packet_len, &packet) != 0) {
+        cerr << "Failed to deserialize Scan Response.\n";
+        return false;
+    }
+
+    switch (packet.type) {
+        case MSG_TYPE_SCAN_SERVER: {
+            cout << "Scan successful. Devices found: "
+                 << (int)packet.data.scan_res.num_devices << "\n";
+            for (int i = 0; i < packet.data.scan_res.num_devices; ++i) {
+                cout << "Device ID: " << static_cast<int>(packet.data.scan_res.device_ids[i]) << "\n";
+            }
+            cout << endl;
+            break;
+        }
+        case MSG_TYPE_CMD_RESPONSE: {
+            cout << "Scan failed. Server returned status: ";
+            print_status_message(packet.data.cmd_response.status_code);
+            break;
+        }
+        default: {
+            cout << "Unexpected packet type: " << (int)packet.type << endl;
+            break;
+        }
+    }
+
+    return true;
+}
+
 bool client_login(int sockfd, uint32_t& token) {
     string myAppID, myPassword;
     uint8_t send_buffer[MAX_BUFFER_SIZE];
@@ -168,8 +223,11 @@ int main(int argc, char** argv) {
     cout << "Connected to server " << argv[1] << ":" << SERV_PORT << endl;
     while(true){
         while(!client_login(sockfd, token)){
-
+            // lặp cho đến khi login thành công
         }
+
+        // Scan devices sau khi login
+        client_scan(sockfd, token);
     }
     close(sockfd);
     return 0;

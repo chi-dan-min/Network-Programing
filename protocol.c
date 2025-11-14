@@ -258,7 +258,9 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         //------------------------------
         case MSG_TYPE_SCAN_CLIENT: {
             if (payload_len != 4) return -1;
-            memcpy(&out_packet->data.scan_req.token, payload, 4);
+            uint32_t net_token;
+            memcpy(&net_token, payload, 4);         // copy 4 byte từ mạng
+            out_packet->data.scan_req.token = ntohl(net_token); // chuyển sang host byte order
             break;
         }
 
