@@ -31,6 +31,7 @@
 #define STATUS_ERR_WRONG_PASSWORD           0x06         // Sai mật khẩu (cho Type 10)
 #define STATUS_ERR_MALFORMED                0x07         // Gói tin Client gửi bị sai cấu trúc
 #define STATUS_ERR_INVALID_GARDEN           0x08         // Garden ID không tồn tại / Duplicate
+#define STATUS_ERR_UNKNOW                   0x09         // Gói tin có type không xác định
 
 //ALERT CODES       
 #define ALERT_WATERING_START                0x10         // Bơm bắt đầu tưới
@@ -133,7 +134,7 @@ typedef struct {
     uint8_t  dev_id;
 } DeviceAdd; 
 
-// 10. Delete Device (Type 91)
+// 10. Delete Device 
 typedef struct {
     uint32_t token; // 4 bytes (Cần htonl/ntohl)
     uint8_t  garden_id;
@@ -197,6 +198,48 @@ int serialize_info_request(uint32_t token, uint8_t* out_buffer);
  * @return Tổng số byte đã ghi vào buffer
  */
 int serialize_info_response(const InfoResponse* info_data, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Interval DATA (Device -> Server)
+ * @return Tổng số byte đã ghi vào buffer
+ */
+int serialize_interval_data(const IntervalData* data, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin ALERT (Device -> Server)
+ * @return Tổng số byte đã ghi vào buffer
+ */
+int serialize_alert(const Alert* alert, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin CMD_RESPONSE (Server -> Client)
+ * @return Tổng số byte đã ghi vào buffer (luôn là 3)
+ */
+int serialize_cmd_response(uint8_t status_code, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Add Garden (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer (luôn là 7)
+ */
+int serialize_garden_add(uint32_t token, uint8_t garden_id, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Delete Garden (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer (luôn là 7)
+ */
+int serialize_garden_del(uint32_t token, uint8_t garden_id, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Add Device (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer (luôn là 8)
+ */
+int serialize_device_add(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Delete Device (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer (luôn là 8)
+ */
+int serialize_device_del(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint8_t* out_buffer);
 
 
 // --- Khai báo hàm GIẢI GÓI TIN (Deserialization) ---

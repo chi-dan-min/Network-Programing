@@ -90,6 +90,112 @@ int serialize_info_response(const InfoResponse* info_data, uint8_t* out_buffer) 
     return 2 + payload_len; 
 }
 
+int serialize_interval_data(const IntervalData* data, uint8_t* out_buffer) {
+    if (!data || !out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_DATA;
+    out_buffer[1] = 1 + 4 + 4;  // dev_id(1) + timestamp(4) + humidity/n/p/k (4)
+
+    out_buffer[2] = data->dev_id;
+
+    uint32_t ts = htonl(data->timestamp);
+    memcpy(&out_buffer[3], &ts, 4);
+
+    out_buffer[7] = data->humidity;
+    out_buffer[8] = data->n_level;
+    out_buffer[9] = data->p_level;
+    out_buffer[10] = data->k_level;
+
+    return 11; // tổng 11 byte
+}
+
+int serialize_alert(const Alert* alert, uint8_t* out_buffer) {
+    if (!alert || !out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_ALERT;
+    out_buffer[1] = 4 + 3;  // timestamp(4) + alert_code + dev_id + alert_value
+
+    uint32_t ts = htonl(alert->timestamp);
+    memcpy(&out_buffer[2], &ts, 4);
+
+    out_buffer[6] = alert->alert_code;
+    out_buffer[7] = alert->dev_id;
+    out_buffer[8] = alert->alert_value;
+
+    return 9;
+}
+
+int serialize_cmd_response(uint8_t status_code, uint8_t* out_buffer) {
+    if (!out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_CMD_RESPONSE;
+    out_buffer[1] = 1;  // chỉ có 1 byte status
+
+    out_buffer[2] = status_code;
+
+    return 3;
+}
+
+
+int serialize_garden_add(uint32_t token, uint8_t garden_id, uint8_t* out_buffer) {
+    if (!out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_GARDEN_ADD;
+    out_buffer[1] = 4 + 1;  // token(4) + garden_id(1)
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = garden_id;
+
+    return 7;
+}
+
+int serialize_garden_del(uint32_t token, uint8_t garden_id, uint8_t* out_buffer) {
+    if (!out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_GARDEN_DEL;
+    out_buffer[1] = 4 + 1;
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = garden_id;
+
+    return 7;
+}
+
+int serialize_device_add(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint8_t* out_buffer) {
+    if (!out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_DEVICE_ADD;
+    out_buffer[1] = 4 + 2;  // token + garden_id + dev_id
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = garden_id;
+    out_buffer[7] = dev_id;
+
+    return 8;
+}
+
+int serialize_device_del(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint8_t* out_buffer) {
+    if (!out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_DEVICE_DEL;
+    out_buffer[1] = 4 + 2;
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = garden_id;
+    out_buffer[7] = dev_id;
+
+    return 8;
+}
+
+
 //DESERIALIZATION
 int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* out_packet) {
     if (buffer_len < 2) {
@@ -271,10 +377,11 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         // 254 - Command Response
         //------------------------------
         case MSG_TYPE_CMD_RESPONSE: {
-            if (payload_len < 2) return -1;
+            if (payload_len < 1) return -1;
             out_packet->data.cmd_response.status_code = payload[0];
             break;
         }
+
 
         //------------------------------
         // Unknown type

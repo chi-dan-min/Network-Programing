@@ -81,6 +81,49 @@ bool authenticate_app(const string& appID, const string& password) {
     return it->second == password;
 }
 
+void handle_connect_request(int client_fd, const ConnectRequest& req, uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len, uint32_t& token) {
+    print_buffer("Server receive: Connect Request", recv_buffer, sizeof(recv_buffer));
+    cout << "Client " << client_fd << " request\n";
+    cout << "AppID: " << req.appID << endl;
+    cout << "Password: " << req.password << "\n\n";
+
+    if (authenticate_app(req.appID, req.password)) {
+        App newApp;
+        newApp.appID = req.appID;
+        token = generate_unique_token();
+        newApp.token = token;
+
+        cout << "Assigned token: " << token << endl;
+
+        {
+            lock_guard<mutex> lock(apps_mutex);
+            apps.push_back(newApp);
+        }
+
+        packet_len = serialize_connect_response(token, send_buffer);
+        print_buffer("Server send: Connect Response", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+
+    } else {
+        // Sai mật khẩu → gửi CMD_RESPONSE
+        packet_len = serialize_cmd_response(STATUS_ERR_WRONG_PASSWORD, send_buffer);
+        print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+    }
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+}
+
+void handle_unknown_packet(int client_fd, uint8_t type, uint8_t* send_buffer, int& packet_len) {
+    packet_len = serialize_cmd_response(STATUS_ERR_UNKNOW, send_buffer);
+    print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+    cout << "Unknown type: " << (int)type << endl;
+}
+
+
 void client_handler(int client_fd) {
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
@@ -90,38 +133,27 @@ void client_handler(int client_fd) {
     uint32_t token = 30;
 
     while ((packet_len = recv(client_fd, recv_buffer, MAX_BUFFER_SIZE, 0)) > 0) {
-        ParsedPacket packet;
+    ParsedPacket packet;
+
         if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
-            memset(send_buffer, 0, sizeof(send_buffer));
-            if (packet.type == MSG_TYPE_CONNECT_CLIENT) {//Connect
-                print_buffer("Server receive: Connect Request", recv_buffer, packet_len);
-                cout << "Client " << client_fd << " request\n";
-                cout << "AppID: " << packet.data.connect_req.appID << endl;
-                cout << "Password: " << packet.data.connect_req.password << "\n\n";
-                if(authenticate_app(packet.data.connect_req.appID, packet.data.connect_req.password)){
-                    App newApp;
-                    newApp.appID = packet.data.connect_req.appID;
-                    token = generate_unique_token();
-                    newApp.token = token;
-                    cout << "Assigned token: " << token << endl;
-                    {
-                        lock_guard<mutex> lock(apps_mutex);
-                        apps.push_back(newApp); 
-                    }
+            switch (packet.type) {
+                case MSG_TYPE_CONNECT_CLIENT:
+                    handle_connect_request(client_fd, packet.data.connect_req, send_buffer,recv_buffer, packet_len, token);
+                    break;
 
-                    
-                    packet_len = serialize_connect_response(token, send_buffer);
-                    print_buffer("Server send: Connect Response", send_buffer, packet_len);
-                    send(client_fd, send_buffer, packet_len, 0);
-
-                    memset(send_buffer, 0, sizeof(send_buffer));
-                }
-                else{
-
-                }
+                default:
+                    handle_unknown_packet(client_fd, packet.type, send_buffer, packet_len);
+                    break;
             }
+        } else {
+            // Deserialize thất bại → gửi CMD_RESPONSE lỗi
+            packet_len = serialize_cmd_response(STATUS_ERR_MALFORMED, send_buffer);
+            print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+            send(client_fd, send_buffer, packet_len, 0);
+            memset(send_buffer, 0, sizeof(send_buffer));
         }
 
+        memset(recv_buffer, 0, sizeof(recv_buffer));
     }
 
     {

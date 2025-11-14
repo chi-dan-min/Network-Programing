@@ -26,13 +26,120 @@ void print_buffer(const char* title, const uint8_t* buffer, int len) {
     cout << dec;
 }
 
-int main(int argc, char** argv) {
+void print_status_message(uint8_t status_code) {
+    switch (status_code) {
+        case STATUS_OK:
+            cout << "[STATUS_OK] Success\n";
+            break;
+
+        case STATUS_ERR_FAILED:
+            cout << "[STATUS_ERR_FAILED] General error, unspecified failure\n";
+            break;
+
+        case STATUS_ERR_INVALID_TOKEN:
+            cout << "[STATUS_ERR_INVALID_TOKEN] Invalid or expired token\n";
+            break;
+
+        case STATUS_ERR_INVALID_DEVICE:
+            cout << "[STATUS_ERR_INVALID_DEVICE] Device ID not found or offline\n";
+            break;
+
+        case STATUS_ERR_INVALID_PARAM:
+            cout << "[STATUS_ERR_INVALID_PARAM] Invalid parameter ID or value\n";
+            break;
+
+        case STATUS_ERR_INVALID_SLOT:
+            cout << "[STATUS_ERR_INVALID_SLOT] Invalid schedule slot ID\n";
+            break;
+
+        case STATUS_ERR_WRONG_PASSWORD:
+            cout << "[STATUS_ERR_WRONG_PASSWORD] Incorrect password\n";
+            break;
+
+        case STATUS_ERR_MALFORMED:
+            cout << "[STATUS_ERR_MALFORMED] Malformed packet sent by client\n";
+            break;
+
+        case STATUS_ERR_INVALID_GARDEN:
+            cout << "[STATUS_ERR_INVALID_GARDEN] Garden ID does not exist or duplicate\n";
+            break;
+
+        case STATUS_ERR_UNKNOW:
+            cout << "[STATUS_ERR_UNKNOWN] Unknown packet type\n";
+            break;
+
+        default:
+            cout << "[UNKNOWN_STATUS] Unrecognized status code: "
+                 << static_cast<int>(status_code) << "\n";
+            break;
+    }
+}
+
+bool client_login(int sockfd, uint32_t& token) {
     string myAppID, myPassword;
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
+    int packet_len;
+
     memset(send_buffer, 0, sizeof(send_buffer));
     memset(recv_buffer, 0, sizeof(recv_buffer));
-    int packet_len;
+
+    while (true) {
+        cout << "Enter your AppID: ";
+        cin >> myAppID;
+        cout << "Enter your password: ";
+        cin >> myPassword;
+
+        // --- Gửi Connect Request ---
+        packet_len = serialize_connect_request(myAppID.c_str(), myPassword.c_str(), send_buffer);
+        print_buffer("Client send: Connect Request", send_buffer, packet_len);
+        send(sockfd, send_buffer, packet_len, 0);
+        memset(send_buffer, 0, sizeof(send_buffer));
+
+        // --- Nhận Connect Response ---
+        packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
+        if (packet_len <= 0) {
+            cerr << "Server disconnected.\n";
+            return false;
+        }
+
+        print_buffer("Client receive: Connect Response", recv_buffer, packet_len);
+
+        ParsedPacket packet;
+        if (deserialize_packet(recv_buffer, packet_len, &packet) != 0) {
+            cerr << "Failed to deserialize packet.\n";
+            memset(recv_buffer, 0, sizeof(recv_buffer));
+            continue;
+        }
+
+        cout << "Packet type received: " << (int)packet.type << endl;
+
+        switch (packet.type) {
+            case MSG_TYPE_CONNECT_SERVER: {
+                token = packet.data.connect_res.token;
+                cout << "Login successful! Received Token: " << token << "\n\n";
+                return true;
+            }
+
+            case MSG_TYPE_CMD_RESPONSE: {
+                cout << "Login failed. Server returned status: ";
+                print_status_message(packet.data.cmd_response.status_code);
+                cout << "\n";
+                break; // cho phép nhập lại
+            }
+
+            default: {
+                cout << "Unexpected packet type: " << (int)packet.type << endl;
+                break;
+            }
+        }
+
+        memset(recv_buffer, 0, sizeof(recv_buffer));
+    }
+}
+
+
+int main(int argc, char** argv) {
     uint32_t token;
 
     if (argc != 2) {
@@ -60,30 +167,10 @@ int main(int argc, char** argv) {
     }
     cout << "Connected to server " << argv[1] << ":" << SERV_PORT << endl;
     while(true){
-        cout << "Enter your AppID: ";
-        cin >> myAppID;
-        cout << "Enter your password: ";
-        cin >> myPassword;
+        while(!client_login(sockfd, token)){
 
-        packet_len = serialize_connect_request(myAppID.c_str(), myPassword.c_str(), send_buffer);
-        print_buffer("Client send: Connect Request", send_buffer, packet_len);
-        send(sockfd, send_buffer, packet_len, 0);
-        memset(send_buffer, 0, sizeof(send_buffer));
-
-
-        packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
-        print_buffer("Client receive: Connect Response", recv_buffer, packet_len);
-        ParsedPacket packet;
-        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
-            if (packet.type == MSG_TYPE_CONNECT_SERVER) {
-                token = packet.data.connect_res.token;
-                cout << "Token:" << token << endl;
-            }
         }
-        memset(recv_buffer, 0, sizeof(recv_buffer));
     }
-    
-
     close(sockfd);
     return 0;
 }
