@@ -285,7 +285,9 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         //------------------------------
         case MSG_TYPE_INFO_CLIENT: {
             if (payload_len != 4) return -1;
-            memcpy(&out_packet->data.info_req.token, payload, 4);
+            uint32_t net_token;
+            memcpy(&net_token, payload, 4);         // copy 4 byte từ mạng
+            out_packet->data.info_req.token = ntohl(net_token); // chuyển sang host byte order
             break;
         }
 
@@ -306,7 +308,7 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
                 garden->garden_id = payload[offset++];
                 garden->num_devices = payload[offset++];
 
-                if (garden->num_devices > MAX_DEVICES) return -1;
+                if (garden->num_devices > MAX_DEVICES_PER_GARDEN) return -1;
                 if (offset + garden->num_devices > payload_len) return -1;
 
                 for (int j = 0; j < garden->num_devices; j++) {

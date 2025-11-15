@@ -75,61 +75,6 @@ void print_status_message(uint8_t status_code) {
     }
 }
 
-bool client_scan(int sockfd, uint32_t token) {
-    uint8_t send_buffer[MAX_BUFFER_SIZE];
-    uint8_t recv_buffer[MAX_BUFFER_SIZE];
-    int packet_len;
-
-    memset(send_buffer, 0, sizeof(send_buffer));
-    memset(recv_buffer, 0, sizeof(recv_buffer));
-
-    // --- Gửi Scan Request ---
-    packet_len = serialize_scan_request(token, send_buffer);
-    print_buffer("Client send: Scan Request", send_buffer, packet_len);
-    if (send(sockfd, send_buffer, packet_len, 0) <= 0) {
-        cerr << "Failed to send Scan Request.\n";
-        return false;
-    }
-
-    // --- Nhận Scan Response ---
-    packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
-    if (packet_len <= 0) {
-        cerr << "Server disconnected.\n";
-        return false;
-    }
-
-    print_buffer("Client receive: Scan Response", recv_buffer, packet_len);
-
-    ParsedPacket packet;
-    if (deserialize_packet(recv_buffer, packet_len, &packet) != 0) {
-        cerr << "Failed to deserialize Scan Response.\n";
-        return false;
-    }
-
-    switch (packet.type) {
-        case MSG_TYPE_SCAN_SERVER: {
-            cout << "Scan successful. Devices found: "
-                 << (int)packet.data.scan_res.num_devices << "\n";
-            for (int i = 0; i < packet.data.scan_res.num_devices; ++i) {
-                cout << "Device ID: " << static_cast<int>(packet.data.scan_res.device_ids[i]) << "\n";
-            }
-            cout << endl;
-            break;
-        }
-        case MSG_TYPE_CMD_RESPONSE: {
-            cout << "Scan failed. Server returned status: ";
-            print_status_message(packet.data.cmd_response.status_code);
-            break;
-        }
-        default: {
-            cout << "Unexpected packet type: " << (int)packet.type << endl;
-            break;
-        }
-    }
-
-    return true;
-}
-
 bool client_login(int sockfd, uint32_t& token) {
     string myAppID, myPassword;
     uint8_t send_buffer[MAX_BUFFER_SIZE];
@@ -193,6 +138,128 @@ bool client_login(int sockfd, uint32_t& token) {
     }
 }
 
+bool client_scan(int sockfd, uint32_t token) {
+    uint8_t send_buffer[MAX_BUFFER_SIZE];
+    uint8_t recv_buffer[MAX_BUFFER_SIZE];
+    int packet_len;
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+    memset(recv_buffer, 0, sizeof(recv_buffer));
+
+    // --- Gửi Scan Request ---
+    packet_len = serialize_scan_request(token, send_buffer);
+    print_buffer("Client send: Scan Request", send_buffer, packet_len);
+    if (send(sockfd, send_buffer, packet_len, 0) <= 0) {
+        cerr << "Failed to send Scan Request.\n";
+        return false;
+    }
+
+    // --- Nhận Scan Response ---
+    packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
+    if (packet_len <= 0) {
+        cerr << "Server disconnected.\n";
+        return false;
+    }
+
+    print_buffer("Client receive: Scan Response", recv_buffer, packet_len);
+
+    ParsedPacket packet;
+    if (deserialize_packet(recv_buffer, packet_len, &packet) != 0) {
+        cerr << "Failed to deserialize Scan Response.\n";
+        return false;
+    }
+
+    switch (packet.type) {
+        case MSG_TYPE_SCAN_SERVER: {
+            cout << "Scan successful. Devices found: "
+                 << (int)packet.data.scan_res.num_devices << "\n";
+            for (int i = 0; i < packet.data.scan_res.num_devices; ++i) {
+                cout << "Device ID: " << static_cast<int>(packet.data.scan_res.device_ids[i]) << "\n";
+            }
+            cout << endl;
+            break;
+        }
+        case MSG_TYPE_CMD_RESPONSE: {
+            cout << "Scan failed. Server returned status: ";
+            print_status_message(packet.data.cmd_response.status_code);
+            break;
+        }
+        default: {
+            cout << "Unexpected packet type: " << (int)packet.type << endl;
+            break;
+        }
+    }
+
+    return true;
+}
+
+bool client_info(int sockfd, uint32_t token) {
+    uint8_t send_buffer[MAX_BUFFER_SIZE];
+    uint8_t recv_buffer[MAX_BUFFER_SIZE];
+    int packet_len;
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+    memset(recv_buffer, 0, sizeof(recv_buffer));
+
+    // --- Gửi Info Request ---
+    packet_len = serialize_info_request(token, send_buffer);
+    print_buffer("Client send: Info Request", send_buffer, packet_len);
+
+    if (send(sockfd, send_buffer, packet_len, 0) <= 0) {
+        cerr << "Failed to send Info Request.\n";
+        return false;
+    }
+
+    // --- Nhận Info Response ---
+    packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
+    if (packet_len <= 0) {
+        cerr << "Server disconnected.\n";
+        return false;
+    }
+
+    print_buffer("Client receive: Info Response", recv_buffer, packet_len);
+
+    ParsedPacket packet;
+    if (deserialize_packet(recv_buffer, packet_len, &packet) != 0) {
+        cerr << "Failed to deserialize Info Response.\n";
+        return false;
+    }
+
+    switch (packet.type) {
+        case MSG_TYPE_INFO_SERVER: {
+            InfoResponse& info = packet.data.info_res;
+
+            cout << "INFO RESPONSE: Found " << (int)info.num_gardens << " garden(s)\n";
+
+            for (int i = 0; i < info.num_gardens; ++i) {
+                const GardenInfo& g = info.gardens[i];
+
+                cout << "\nGarden ID: " << (int)g.garden_id
+                     << " | Devices: " << (int)g.num_devices << "\n";
+
+                for (int d = 0; d < g.num_devices; ++d) {
+                    cout << "  - Device ID: "
+                         << (int)g.devices[d].device_id << "\n";
+                }
+            }
+
+            cout << endl;
+            break;
+        }
+
+        case MSG_TYPE_CMD_RESPONSE: {
+            cout << "Info request failed. Server returned status: ";
+            print_status_message(packet.data.cmd_response.status_code);
+            break;
+        }
+
+        default:
+            cout << "Unexpected packet type: " << (int)packet.type << endl;
+            break;
+    }
+
+    return true;
+}
 
 int main(int argc, char** argv) {
     uint32_t token;
@@ -228,6 +295,9 @@ int main(int argc, char** argv) {
 
         // Scan devices sau khi login
         client_scan(sockfd, token);
+
+        //Get INFO ứng với appID 
+        client_info(sockfd, token);
     }
     close(sockfd);
     return 0;

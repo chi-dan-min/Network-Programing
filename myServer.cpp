@@ -172,6 +172,78 @@ void handle_scan_request(int client_fd, const ScanRequest& req,
     memset(send_buffer, 0, sizeof(send_buffer));
 }
 
+void handle_info_request(int client_fd, const InfoRequest& req,
+                         uint8_t* send_buffer, const uint8_t* recv_buffer,
+                         int& packet_len, uint32_t token)
+{
+    cout << "Handling info request from token: " << req.token << endl;
+    print_buffer("Server receive: Info Request", recv_buffer, sizeof(send_buffer));
+
+    // --- 1. Kiểm tra token ---
+    App* app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+        memset(send_buffer, 0, sizeof(send_buffer));
+        return;
+    }
+
+    string appID = app->appID;
+
+    // --- 2. Lấy danh sách garden của App ---
+    vector<uint8_t> gardenList;
+    {
+        lock_guard<mutex> lock(gardens_mutex);
+        if (gardens.find(appID) != gardens.end()) {
+            gardenList = gardens[appID];
+        }
+    }
+
+    uint8_t numGardens = gardenList.size();
+    if (numGardens > MAX_GARDENS) numGardens = MAX_GARDENS;
+
+    // Tạo InfoResponse theo đúng struct
+    InfoResponse resp;
+    resp.num_gardens = numGardens;
+
+    // --- 3. Lấy device thuộc mỗi garden ---
+    for (int i = 0; i < numGardens; i++) {
+        uint8_t gid = gardenList[i];
+        resp.gardens[i].garden_id = gid;
+
+        vector<uint8_t> devices;
+
+        {
+            lock_guard<mutex> lock(devices_mutex);
+            for (auto& [deviceID, gardenID] : device_to_garden) {
+                if (gardenID == gid) {
+                    devices.push_back(deviceID);
+                }
+            }
+        }
+
+        uint8_t ndev = devices.size();
+        if (ndev > MAX_DEVICES_PER_GARDEN) 
+            ndev = MAX_DEVICES_PER_GARDEN;
+
+        resp.gardens[i].num_devices = ndev;
+
+        for (int d = 0; d < ndev; d++) {
+            resp.gardens[i].devices[d].device_id = devices[d];
+        }
+    }
+
+    // --- 4. Serialize và gửi cho client ---
+    packet_len = serialize_info_response(&resp, send_buffer);
+
+    print_buffer("Server send: Info Response", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+}
+
+
 void client_handler(int client_fd) {
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
@@ -190,6 +262,9 @@ void client_handler(int client_fd) {
                     break;
                 case MSG_TYPE_SCAN_CLIENT: 
                     handle_scan_request(client_fd, packet.data.scan_req, send_buffer,recv_buffer, packet_len, token);
+                    break;
+                case MSG_TYPE_INFO_CLIENT:
+                    handle_info_request(client_fd, packet.data.info_req, send_buffer, recv_buffer, packet_len, token);
                     break;
                 default:
                     handle_unknown_packet(client_fd, packet.type, send_buffer, packet_len);

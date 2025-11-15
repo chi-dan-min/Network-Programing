@@ -45,6 +45,7 @@
 // Kích thước buffer tối đa
 #define MAX_BUFFER_SIZE                     256
 #define MAX_DEVICES                         50
+#define MAX_DEVICES_PER_GARDEN              10
 #define MAX_GARDENS                         10
 #define APPID_FIXED_LENGTH                  8
 
