@@ -324,8 +324,9 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         // 80 - Garden Add
         //------------------------------
         case MSG_TYPE_GARDEN_ADD: {
-            if (payload_len < 1) return -1;
-            out_packet->data.garden_add.garden_id = payload[0];
+            if (payload_len < 5) return -1; // 4 bytes token + 1 byte garden_id
+            out_packet->data.garden_add.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.garden_add.garden_id = payload[4];
             break;
         }
 
@@ -333,8 +334,9 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         // 81 - Garden Delete
         //------------------------------
         case MSG_TYPE_GARDEN_DEL: {
-            if (payload_len < 1) return -1;
-            out_packet->data.garden_del.garden_id = payload[0];
+            if (payload_len < 5) return -1; // 4 bytes token + 1 byte garden_id
+            out_packet->data.garden_del.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.garden_del.garden_id = payload[4];
             break;
         }
 
@@ -342,9 +344,10 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         // 90 - Device Add
         //------------------------------
         case MSG_TYPE_DEVICE_ADD: {
-            if (payload_len < 2) return -1;
-            out_packet->data.device_add.garden_id = payload[0];
-            out_packet->data.device_add.dev_id = payload[1];
+            if (payload_len < 6) return -1; // 4 bytes token + 1 byte garden_id + 1 byte dev_id
+            out_packet->data.device_add.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.device_add.garden_id = payload[4];
+            out_packet->data.device_add.dev_id = payload[5];
             break;
         }
 
@@ -352,9 +355,10 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         // 91 - Device Delete
         //------------------------------
         case MSG_TYPE_DEVICE_DEL: {
-            if (payload_len < 2) return -1;
-            out_packet->data.device_del.garden_id = payload[0];
-            out_packet->data.device_del.dev_id = payload[1];
+            if (payload_len < 6) return -1; // 4 bytes token + 1 byte garden_id + 1 byte dev_id
+            out_packet->data.device_del.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.device_del.garden_id = payload[4];
+            out_packet->data.device_del.dev_id = payload[5];
             break;
         }
 

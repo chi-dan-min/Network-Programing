@@ -12,6 +12,7 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <iomanip> 
+#include <algorithm>
 #include "protocol.h"
 #define SERV_PORT 3000
 #define MAX_CLIENTS 5
@@ -147,7 +148,7 @@ void handle_unknown_packet(int client_fd, uint8_t type, uint8_t* send_buffer, in
 
 void handle_scan_request(int client_fd, const ScanRequest& req,
                          uint8_t* send_buffer, const uint8_t* recv_buffer,
-                         int& packet_len, uint32_t token){
+                         int& packet_len){
     cout << "Handling scan request from token: " << req.token << endl;
     print_buffer("Server receive: Scan Request", recv_buffer, sizeof(recv_buffer));
 
@@ -174,10 +175,9 @@ void handle_scan_request(int client_fd, const ScanRequest& req,
 
 void handle_info_request(int client_fd, const InfoRequest& req,
                          uint8_t* send_buffer, const uint8_t* recv_buffer,
-                         int& packet_len, uint32_t token)
-{
+                         int& packet_len){
     cout << "Handling info request from token: " << req.token << endl;
-    print_buffer("Server receive: Info Request", recv_buffer, sizeof(send_buffer));
+    print_buffer("Server receive: Info Request", recv_buffer, sizeof(recv_buffer));
 
     // --- 1. Kiểm tra token ---
     App* app = findAppByToken(req.token);
@@ -243,6 +243,87 @@ void handle_info_request(int client_fd, const InfoRequest& req,
     memset(send_buffer, 0, sizeof(send_buffer));
 }
 
+void handle_garden_add_request(int client_fd, const GardenAdd& req,
+                               uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len){
+    cout << "Handling info request from token: " << req.token << endl;
+    print_buffer("Server receive: Garden Add Request", recv_buffer, sizeof(recv_buffer));
+
+    App* app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    string appID = app->appID;
+    uint8_t garden_id = req.garden_id;
+
+    {
+        lock_guard<mutex> lock(gardens_mutex);
+        vector<uint8_t>& appGardens = gardens[appID];
+
+        // kiểm tra xem garden đã tồn tại chưa
+        if (find(appGardens.begin(), appGardens.end(), garden_id) != appGardens.end()) {
+            packet_len = serialize_cmd_response(STATUS_ERR_INVALID_GARDEN, send_buffer);
+        } else {
+            appGardens.push_back(garden_id);
+            packet_len = serialize_cmd_response(STATUS_OK, send_buffer);
+            cout << "Garden added: AppID=" << appID << ", GardenID=" << (int)garden_id << endl;
+        }
+    }
+
+    print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+}
+
+void handle_device_add_request(int client_fd, const DeviceAdd& req,
+                               uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len){
+    cout << "Handling info request from token: " << req.token << endl;
+    print_buffer("Server receive: Device Add Request", recv_buffer, sizeof(recv_buffer));
+    App* app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    string appID = app->appID;
+    uint8_t garden_id = req.garden_id;
+    uint8_t device_id = req.dev_id;
+
+    {
+        lock_guard<mutex> lock(gardens_mutex);
+        if (gardens.find(appID) == gardens.end() ||
+            find(gardens[appID].begin(), gardens[appID].end(), garden_id) == gardens[appID].end()) 
+        {
+            // garden chưa tồn tại
+            packet_len = serialize_cmd_response(STATUS_ERR_INVALID_GARDEN, send_buffer);
+            print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+            send(client_fd, send_buffer, packet_len, 0);
+            return;
+        }
+    }
+
+    {
+        lock_guard<mutex> lock(devices_mutex);
+        // Kiểm tra device đã tồn tại chưa
+        if (device_to_garden.find(device_id) != device_to_garden.end() &&
+            device_to_garden[device_id] != 0)
+        {
+            packet_len = serialize_cmd_response(STATUS_ERR_INVALID_DEVICE, send_buffer);
+        } else {
+            device_to_garden[device_id] = garden_id;
+            packet_len = serialize_cmd_response(STATUS_OK, send_buffer);
+            cout << "Device added: DeviceID=" << (int)device_id 
+                 << " -> GardenID=" << (int)garden_id << endl;
+        }
+    }
+
+    print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+}
 
 void client_handler(int client_fd) {
     uint8_t send_buffer[MAX_BUFFER_SIZE];
@@ -250,47 +331,68 @@ void client_handler(int client_fd) {
     memset(send_buffer, 0, sizeof(send_buffer));
     memset(recv_buffer, 0, sizeof(recv_buffer));
     int packet_len;
-    uint32_t token = 30;
+    uint32_t token = 0;
 
-    while ((packet_len = recv(client_fd, recv_buffer, MAX_BUFFER_SIZE, 0)) > 0) {
-    ParsedPacket packet;
-        cout << "Client " << client_fd << " request\n";
-        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
-            switch (packet.type) {
-                case MSG_TYPE_CONNECT_CLIENT:
-                    handle_connect_request(client_fd, packet.data.connect_req, send_buffer,recv_buffer, packet_len, token);
-                    break;
-                case MSG_TYPE_SCAN_CLIENT: 
-                    handle_scan_request(client_fd, packet.data.scan_req, send_buffer,recv_buffer, packet_len, token);
-                    break;
-                case MSG_TYPE_INFO_CLIENT:
-                    handle_info_request(client_fd, packet.data.info_req, send_buffer, recv_buffer, packet_len, token);
-                    break;
-                default:
-                    handle_unknown_packet(client_fd, packet.type, send_buffer, packet_len);
-                    break;
+    while (true) {
+        packet_len = recv(client_fd, recv_buffer, MAX_BUFFER_SIZE, 0);
+        if (packet_len > 0) {
+            ParsedPacket packet;
+            cout << "Client " << client_fd << " request\n";
+            if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
+                switch (packet.type) {
+                    case MSG_TYPE_CONNECT_CLIENT:
+                        handle_connect_request(client_fd, packet.data.connect_req, send_buffer,recv_buffer, packet_len, token);
+                        break;
+                    case MSG_TYPE_SCAN_CLIENT: 
+                        handle_scan_request(client_fd, packet.data.scan_req, send_buffer,recv_buffer, packet_len);
+                        break;
+                    case MSG_TYPE_INFO_CLIENT:
+                        handle_info_request(client_fd, packet.data.info_req, send_buffer, recv_buffer, packet_len);
+                        break;
+                    case MSG_TYPE_GARDEN_ADD:
+                        handle_garden_add_request(client_fd, packet.data.garden_add, send_buffer, recv_buffer, packet_len);
+                        break;
+                    case MSG_TYPE_DEVICE_ADD:
+                        handle_device_add_request(client_fd, packet.data.device_add, send_buffer, recv_buffer, packet_len);
+                        break;
+                    default:
+                        handle_unknown_packet(client_fd, packet.type, send_buffer, packet_len);
+                        break;
+                }
+            } else {
+                // Deserialize thất bại → gửi CMD_RESPONSE lỗi
+                packet_len = serialize_cmd_response(STATUS_ERR_MALFORMED, send_buffer);
+                print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+                send(client_fd, send_buffer, packet_len, 0);
+                memset(send_buffer, 0, sizeof(send_buffer));
             }
-        } else {
-            // Deserialize thất bại → gửi CMD_RESPONSE lỗi
-            packet_len = serialize_cmd_response(STATUS_ERR_MALFORMED, send_buffer);
-            print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
-            send(client_fd, send_buffer, packet_len, 0);
-            memset(send_buffer, 0, sizeof(send_buffer));
+
+            memset(recv_buffer, 0, sizeof(recv_buffer));
+                
+        }else if (packet_len == 0) {
+            //CLIENT NGẮT KẾT NỐI (GRACEFUL)
+            cout << "Client " << client_fd << " disconnected gracefully.\n";
+            break; 
+
+        } else { // packet_len < 0
+            if (errno == ECONNRESET) {
+                cout << "Client " << client_fd << " connection reset by peer.\n";
+            } else {
+                perror("recv failed");
+            }
+            break; 
         }
-
-        memset(recv_buffer, 0, sizeof(recv_buffer));
-    }
-
-    {
-        lock_guard<mutex> lock(apps_mutex);
+    } 
+    
+    if (token != 0) { 
         App* app = findAppByToken(token);
         if (app)
             app->token = 0; 
     }
+    cout << "Client " << client_fd << " exit\n";
 
     close(client_fd);
 }
-
 
 void seed() {
     // --- 1. Read apps.txt ---
