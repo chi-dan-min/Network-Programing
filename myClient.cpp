@@ -81,6 +81,10 @@ void print_status_message(uint8_t status_code) {
             cout << "[STATUS_ERR_UNKNOWN] Unknown packet type\n";
             break;
 
+        case STATUS_ERR_GARDEN_NOT_EMPTY:
+            cout << "[STATUS_ERR_GARDEN_NOT_EMPTY] Cannot delete garden\n";
+            break;
+
         default:
             cout << "[UNKNOWN_STATUS] Unrecognized status code: "
                  << static_cast<int>(status_code) << "\n";
@@ -404,6 +408,135 @@ bool client_add_device(int sockfd, uint32_t token) {
     return true;
 }
 
+bool client_delete_garden(int sockfd, uint32_t token) {
+    uint8_t send_buffer[MAX_BUFFER_SIZE];
+    uint8_t recv_buffer[MAX_BUFFER_SIZE];
+    int packet_len;
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+    memset(recv_buffer, 0, sizeof(recv_buffer));
+
+    if (current_gardens.empty()) {
+        cout << "No Gardens available to delete.\n";
+        return false;
+    }
+    
+    cout << "Current Gardens: ";
+    for (auto gid : current_gardens) cout << (int)gid << " ";
+    cout << "\n";
+    
+
+    uint32_t garden_id_to_delete;
+    cout << "Enter Garden ID to delete (or '0' to cancel) : ";
+    cin >> garden_id_to_delete;
+    if(garden_id_to_delete == 0){
+        cout << "Cancelled deleting Garden.\n";
+        return false;
+    }
+    cin.ignore(); // bỏ ký tự newline
+
+    packet_len = serialize_garden_del(token, static_cast<uint8_t>(garden_id_to_delete), send_buffer);
+    send(sockfd, send_buffer, packet_len, 0);
+    print_buffer("Client send: Garden Delete Request", send_buffer, packet_len);
+
+    // nhận response
+    packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
+    if (packet_len <= 0) {
+        cerr << "Server disconnected.\n";
+        return false;
+    }
+    print_buffer("Client receive: Garden Delete Response", recv_buffer, packet_len);
+
+    if (packet_len > 0) {
+        ParsedPacket packet;
+        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
+            if (packet.type == MSG_TYPE_CMD_RESPONSE) {
+                int status_code = packet.data.cmd_response.status_code;
+                print_status_message(status_code);
+                if(status_code == STATUS_OK){
+                    // Xóa garden khỏi danh sách local
+                    auto it = std::find(current_gardens.begin(), current_gardens.end(), garden_id_to_delete);
+                    if (it != current_gardens.end()) {
+                        current_gardens.erase(it);
+                        cout << "Garden " << garden_id_to_delete << " removed from local list.\n";
+                    }
+                }
+            } else {
+                cout << "Unexpected response type.\n";
+            }
+        }
+    }
+    return true;
+}
+
+bool client_delete_device(int sockfd, uint32_t token) {
+    uint8_t send_buffer[MAX_BUFFER_SIZE];
+    uint8_t recv_buffer[MAX_BUFFER_SIZE];
+    int packet_len;
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+    memset(recv_buffer, 0, sizeof(recv_buffer));
+
+    if (current_gardens.empty()) {
+        cout << "No Gardens available. Cannot delete device.\n";
+        return false;
+    }
+
+    cout << "Available Gardens: ";
+    for (auto gid : current_gardens) cout << (int)gid << " ";
+    cout << "\n";
+
+    uint8_t garden_id, dev_id;
+    int g, d;
+    cout << "Enter Garden ID to delete device from (or '0' to cancel) : ";
+    cin >> g; 
+    if(g == 0){
+        cout << "Cancelled deleting Device.\n";
+        return false;
+    }
+    garden_id = static_cast<uint8_t>(g);
+
+    cout << "Enter Device ID to delete (or '0' to cancel) : ";
+    cin >> d; 
+    if(d == 0){
+        cout << "Cancelled deleting Device.\n";
+        return false;
+    }
+    dev_id = static_cast<uint8_t>(d);
+    cin.ignore();
+
+    packet_len = serialize_device_del(token, garden_id, dev_id, send_buffer);
+    send(sockfd, send_buffer, packet_len, 0);
+    print_buffer("Client send: Device Delete Request", send_buffer, packet_len);
+
+    // Nhận response
+    packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
+    if (packet_len <= 0) {
+        cerr << "Server disconnected.\n";
+        return false;
+    }
+    print_buffer("Client receive: Device Delete Response", recv_buffer, packet_len);
+    if (packet_len > 0) {
+        ParsedPacket packet;
+        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
+            if (packet.type == MSG_TYPE_CMD_RESPONSE) {
+                int status_code = packet.data.cmd_response.status_code;
+                print_status_message(status_code);
+                if(status_code == STATUS_OK){
+                    // Logic đảo ngược của hàm add:
+                    // Hàm add của bạn xóa (hoặc có ý định xóa) khỏi available_devices
+                    // Vậy hàm delete nên thêm nó trở lại vào available_devices
+                    available_devices.push_back(dev_id);
+                    cout << "Device " << (int)dev_id << " added back to available list.\n";
+                }
+            } else {
+                cout << "Unexpected response type.\n";
+            }
+        }
+    }
+    return true;
+}
+
 int main(int argc, char** argv) {
     uint32_t token;
 
@@ -466,7 +599,9 @@ int main(int argc, char** argv) {
         cout << "4. View DATA logs\n";
         cout << "5. View ALERT logs\n";
         cout << "6. Add Garden\n";
-        cout << "7. Add Device\n";
+        cout << "7. Delete Garden\n";
+        cout << "8. Add Device\n";
+        cout << "9. Delete Device\n";
         cout << "Your choice: ";
         cout.flush();
 
@@ -514,7 +649,15 @@ int main(int argc, char** argv) {
                         continue;
                     break;
                 case 7:
+                    if (!client_delete_garden(sockfd, token))
+                        continue;
+                    break;
+                case 8:
                     if (!client_add_device(sockfd, token))
+                        continue;
+                    break;
+                case 9:
+                    if (!client_delete_device(sockfd, token))
                         continue;
                     break;
                 default:

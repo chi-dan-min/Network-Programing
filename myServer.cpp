@@ -325,6 +325,136 @@ void handle_device_add_request(int client_fd, const DeviceAdd& req,
     send(client_fd, send_buffer, packet_len, 0);
 }
 
+void handle_garden_delete_request(int client_fd, const GardenDel& req,
+                                  uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len){
+    cout << "Handling garden delete request from token: " << req.token << endl;
+    print_buffer("Server receive: Garden Delete Request", recv_buffer, sizeof(recv_buffer));
+
+    App* app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        print_buffer("Server send: CMD_RESPONSE (Invalid Token)", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    string appID = app->appID;
+    uint8_t garden_id = req.garden_id;
+
+    // Kiểm tra xem garden có rỗng không
+    bool is_empty = true;
+    {
+        lock_guard<mutex> lock(devices_mutex);
+        // Duyệt qua tất cả device xem có cái nào đang thuộc garden này không
+        for (auto const& [dev_id, gid] : device_to_garden) {
+            if (gid == garden_id) {
+                is_empty = false;
+                break; // Tìm thấy một device, không cần tìm nữa
+            }
+        }
+    } 
+
+    // Nếu không rỗng, trả về lỗi
+    if (!is_empty) {
+        cout << "Attempt to delete non-empty garden: AppID=" << appID 
+             << ", GardenID=" << (int)garden_id << endl;
+        packet_len = serialize_cmd_response(STATUS_ERR_GARDEN_NOT_EMPTY, send_buffer);
+        print_buffer("Server send: CMD_RESPONSE (Garden Not Empty)", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    // Garden đã rỗng
+    {
+        lock_guard<mutex> lock(gardens_mutex);
+        if (gardens.find(appID) == gardens.end()) {
+            //App tồn tại nhưng chưa có entry nào trong `gardens`
+            packet_len = serialize_cmd_response(STATUS_ERR_INVALID_GARDEN, send_buffer);
+        } else {
+            vector<uint8_t>& appGardens = gardens[appID];
+            
+            // Tìm garden trong vector của app
+            auto it = find(appGardens.begin(), appGardens.end(), garden_id);
+
+            if (it == appGardens.end()) {
+                packet_len = serialize_cmd_response(STATUS_ERR_INVALID_GARDEN, send_buffer);
+            } else {
+                appGardens.erase(it);
+                packet_len = serialize_cmd_response(STATUS_OK, send_buffer);
+                cout << "Garden deleted: AppID=" << appID << ", GardenID=" << (int)garden_id << endl;
+            }
+        }
+    }
+
+    print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+}
+
+void handle_device_delete_request(int client_fd, const DeviceDel& req,
+                                  uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len){
+    cout << "Handling device delete request from token: " << req.token << endl;
+    print_buffer("Server receive: Device Delete Request", recv_buffer, sizeof(recv_buffer));
+
+    App* app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        print_buffer("Server send: CMD_RESPONSE (Invalid Token)", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    string appID = app->appID;
+    uint8_t garden_id = req.garden_id;
+    uint8_t device_id = req.dev_id;
+
+    //Kiểm tra xem garden này có thuộc app này không 
+    {
+        lock_guard<mutex> lock(gardens_mutex);
+        if (gardens.find(appID) == gardens.end() ||
+            find(gardens[appID].begin(), gardens[appID].end(), garden_id) == gardens[appID].end()) 
+        {
+            // garden chưa tồn tại (hoặc không thuộc app này)
+            packet_len = serialize_cmd_response(STATUS_ERR_INVALID_GARDEN, send_buffer);
+            print_buffer("Server send: CMD_RESPONSE (Invalid Garden)", send_buffer, packet_len);
+            send(client_fd, send_buffer, packet_len, 0);
+            return;
+        }
+    }
+
+    // Xóa device (gán về 0)
+    {
+        lock_guard<mutex> lock(devices_mutex);
+        
+        // Kiểm tra xem device có tồn tại và đang được gán không
+        if (device_to_garden.find(device_id) == device_to_garden.end() ||
+            device_to_garden[device_id] == 0)
+        {
+            // Device không tồn tại, hoặc đã được tự do
+            packet_len = serialize_cmd_response(STATUS_ERR_INVALID_DEVICE, send_buffer);
+        }
+        // Kiểm tra xem device có ĐÚNG là thuộc garden này không
+        else if (device_to_garden[device_id] != garden_id)
+        {
+            // Lỗi: Client cố xóa device khỏi garden nó không thuộc về
+            cout << "Device " << (int)device_id << " is in garden " << (int)device_to_garden[device_id]  
+                << ", not in " << (int)garden_id << endl;
+            packet_len = serialize_cmd_response(STATUS_ERR_INVALID_DEVICE, send_buffer);
+        }
+        else 
+        {
+            // Device tồn tại và đúng là thuộc garden này.
+            // "Xóa" nó bằng cách gán về 0 (unassigned)
+            device_to_garden[device_id] = 0; 
+            packet_len = serialize_cmd_response(STATUS_OK, send_buffer);
+            cout << "Device deleted: DeviceID=" << (int)device_id 
+                 << " removed from GardenID=" << (int)garden_id << endl;
+        }
+    }
+
+    print_buffer("Server send: CMD_RESPONSE", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+}
+
 void client_handler(int client_fd) {
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
@@ -354,6 +484,12 @@ void client_handler(int client_fd) {
                         break;
                     case MSG_TYPE_DEVICE_ADD:
                         handle_device_add_request(client_fd, packet.data.device_add, send_buffer, recv_buffer, packet_len);
+                        break;
+                    case MSG_TYPE_GARDEN_DEL:
+                        handle_garden_delete_request(client_fd, packet.data.garden_del, send_buffer, recv_buffer, packet_len);
+                        break;
+                    case MSG_TYPE_DEVICE_DEL:
+                        handle_device_delete_request(client_fd, packet.data.device_del, send_buffer, recv_buffer, packet_len);
                         break;
                     default:
                         handle_unknown_packet(client_fd, packet.type, send_buffer, packet_len);

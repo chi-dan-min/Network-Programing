@@ -32,6 +32,7 @@
 #define STATUS_ERR_MALFORMED                0x07         // Gói tin Client gửi bị sai cấu trúc
 #define STATUS_ERR_INVALID_GARDEN           0x08         // Garden ID không tồn tại / Duplicate
 #define STATUS_ERR_UNKNOW                   0x09         // Gói tin có type không xác định
+#define STATUS_ERR_GARDEN_NOT_EMPTY         0x0A         // Lỗi xóa Garden khi chưa xóa hết device ID 
 
 //ALERT CODES       
 #define ALERT_WATERING_START                0x10         // Bơm bắt đầu tưới
