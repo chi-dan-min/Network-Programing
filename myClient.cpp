@@ -537,6 +537,32 @@ bool client_delete_device(int sockfd, uint32_t token) {
     return true;
 }
 
+void show_menu() {
+    cout << "\n==== MENU ====\n";
+    cout << "0. Show menu\n";
+    cout << "1. Scan devices\n";
+    cout << "2. Get info\n";
+    cout << "3. Exit\n";
+    cout << "4. View DATA logs\n";
+    cout << "5. View ALERT logs\n";
+    cout << "6. Add Garden\n";
+    cout << "7. Delete Garden\n";
+    cout << "8. Add Device\n";
+    cout << "9. Delete Device\n";
+    cout.flush();
+}
+
+string format_timestamp(uint32_t ts) {
+    time_t raw = ts;  
+    struct tm* timeinfo = localtime(&raw);
+
+    char buffer[32];
+    strftime(buffer, sizeof(buffer), "%d/%m/%Y %H:%M:%S", timeinfo);
+
+    return string(buffer);
+}
+
+
 int main(int argc, char** argv) {
     uint32_t token;
 
@@ -591,19 +617,9 @@ int main(int argc, char** argv) {
     fd_set readfds;
     int maxfd = max(sockfd, STDIN_FILENO);
 
+    show_menu();
+
     while (true) {
-        cout << "\n==== MENU ====\n";
-        cout << "1. Scan devices\n";
-        cout << "2. Get info\n";
-        cout << "3. Exit\n";
-        cout << "4. View DATA logs\n";
-        cout << "5. View ALERT logs\n";
-        cout << "6. Add Garden\n";
-        cout << "7. Delete Garden\n";
-        cout << "8. Add Device\n";
-        cout << "9. Delete Device\n";
-        cout << "Your choice: ";
-        cout.flush();
 
         FD_ZERO(&readfds);
         FD_SET(STDIN_FILENO, &readfds);  // đọc input từ user
@@ -624,6 +640,9 @@ int main(int argc, char** argv) {
             cin >> cmd;
 
             switch (cmd) {
+                case 0:
+                    show_menu();
+                    break;
                 case 1:
                     client_scan(sockfd, token);
                     break;
@@ -684,16 +703,23 @@ int main(int argc, char** argv) {
             if (deserialize_packet(recv_buffer, packet_len, &packet) == 0){
                 switch (packet.type) {
                     case MSG_TYPE_DATA: {
-                        string msg = "[DATA] received data packet";
-                        cout << "\n" << msg << "\n";
+                        IntervalData data = packet.data.interval_data;
+                        // Tạo text log
+                        std::ostringstream oss;
+                        oss << "[DATA] " << format_timestamp(data.timestamp)
+                            << ", deviceID=" << (int)data.dev_id
+                            << ", soil=" << (int)data.humidity
+                            << ", N=" << (int)data.n_level
+                            << ", P=" << (int)data.p_level
+                            << ", K=" << (int)data.k_level;
+
+                        string msg = oss.str();
+
                         data_logs.push_back(msg);
                         break;
                     }
 
                     case MSG_TYPE_ALERT: {
-                        string msg = "[ALERT] alert triggered";
-                        cout << "\n" << msg << "\n";
-                        alert_logs.push_back(msg);
                         break;
                     }
 

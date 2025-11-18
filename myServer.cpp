@@ -33,6 +33,7 @@ void print_buffer(const char* title, const uint8_t* buffer, int len) {
 struct App{
     string appID;
     uint32_t token;
+    uint32_t sockfd;
 };
 
 struct DeviceSensor {
@@ -61,6 +62,8 @@ struct DeviceSensor {
     uint32_t pump_timeout; 
     uint32_t fert_timeout;
     uint32_t light_timeout;
+
+    uint8_t time_count;    //Thời gian đếm để gửi Interval Data
 };
 
 
@@ -80,8 +83,6 @@ mutex devices_mutex;
 map<uint8_t, DeviceSensor> sensor_devices;      // device_id -> DeviceSensor
 mutex sensor_devices_mutex;
 
-map<uint32_t, int> token_to_clientfd;           // token -> socket FD
-mutex token_client_mutex;
 
 void print_device_status(const DeviceSensor &dev, uint8_t deviceID, uint8_t gardenID) {
     cout << "[Device " << int(deviceID) << "] "
@@ -121,6 +122,7 @@ void auto_decay_loop() {
                 dev.K = (dev.K > npk_decay) ? dev.K - npk_decay : 0;
 
                 print_device_status(dev, deviceID, device_to_garden[deviceID]);
+
             }
             cout << endl;
         }
@@ -128,7 +130,6 @@ void auto_decay_loop() {
         sleep(1); // decay mỗi 60 giây
     }
 }
-
 
 App* findAppByToken(uint32_t token) {
     lock_guard<mutex> lock(apps_mutex);
@@ -146,6 +147,91 @@ App* findAppByAppID(const string& appID){
             return &apps[i];
     }
     return nullptr;
+}
+
+App* findAppByDeviceID(const uint8_t& dev_id){
+    uint8_t gardenID = 0;
+
+    {
+        lock_guard<mutex> lock(devices_mutex);
+        if (device_to_garden.count(dev_id))
+            gardenID = device_to_garden[dev_id];
+    }
+
+    if (gardenID == 0)
+        return nullptr;
+
+    string appID = "";
+
+    {
+        lock_guard<mutex> lock(gardens_mutex);
+        for(auto &kv : gardens){
+            const auto &vec = kv.second;
+            if(find(vec.begin(), vec.end(), gardenID) != vec.end()){
+                appID = kv.first;
+                break;
+            }
+        }
+    }
+
+    if (appID == "")
+        return nullptr;
+
+    return findAppByAppID(appID);
+}
+
+void send_interval_data(int client_fd, const IntervalData& data){
+    uint8_t buffer[MAX_BUFFER_SIZE];
+    memset(buffer, 0, sizeof(buffer));
+
+    cout << "Sending Interval DATA from device " << int(data.dev_id)
+         << " to sockfd " << client_fd << endl;
+
+    int len = serialize_interval_data(&data, buffer);
+
+    print_buffer("Server send: Interval DATA", buffer, len);
+
+    send(client_fd, buffer, len, 0);
+}
+
+void auto_send_interval() {
+    uint8_t sleep_time = 2;
+    while (true) {
+        {
+            lock_guard<mutex> lock(sensor_devices_mutex);
+
+            for (auto &kv : sensor_devices) {
+                DeviceSensor &dev = kv.second;
+                uint8_t deviceID = kv.first;
+                // Skip devices not assigned to any garden
+                if (device_to_garden[deviceID] == 0)
+                    continue;
+                // Skip if appid off line
+                App *app = findAppByDeviceID(deviceID);
+                if(app == nullptr || app->token == 0)
+                    continue;
+                dev.time_count += sleep_time;
+                if(dev.time_count < dev.T)
+                    continue;
+                else{
+                    uint32_t now = time(nullptr);
+                    IntervalData data{};
+                    data.dev_id = deviceID;
+                    data.timestamp = now;
+                    data.humidity = dev.soil_moisture;
+                    data.n_level = dev.N;
+                    data.p_level = dev.P;
+                    data.k_level = dev.K;
+                    uint32_t sockfd = app -> sockfd;
+                    send_interval_data(sockfd,data);
+                    //reset
+                    dev.time_count = 0;
+                }
+            }
+        }
+
+        sleep(sleep_time); 
+    }
 }
 
 vector<uint8_t> get_unassigned_devices_string() {
@@ -197,6 +283,7 @@ void handle_connect_request(int client_fd, const ConnectRequest& req, uint8_t* s
         newApp.appID = req.appID;
         token = generate_unique_token();
         newApp.token = token;
+        newApp.sockfd = client_fd;
 
         cout << "Assigned token: " << token << endl;
 
@@ -204,10 +291,7 @@ void handle_connect_request(int client_fd, const ConnectRequest& req, uint8_t* s
             lock_guard<mutex> lock(apps_mutex);
             apps.push_back(newApp);
         }
-        {
-            lock_guard<mutex> lock(token_client_mutex);
-            token_to_clientfd[token] = client_fd;
-        }
+        
         packet_len = serialize_connect_response(token, send_buffer);
         print_buffer("Server send: Connect Response", send_buffer, packet_len);
         send(client_fd, send_buffer, packet_len, 0);
@@ -607,12 +691,11 @@ void client_handler(int client_fd) {
     
     if (token != 0) { 
         App* app = findAppByToken(token);
-        if (app)
+        if (app){
             app->token = 0; 
-        {
-            lock_guard<mutex> lock(token_client_mutex);
-            token_to_clientfd.erase(token);
+            app->sockfd = 0;
         }
+            
     }
     cout << "Client " << client_fd << " exit\n";
 
@@ -714,6 +797,7 @@ void seed() {
         ds.lighting_times.push_back(6*60);   // 06:00
         ds.lighting_times.push_back(17*60);  // 17:00
 
+        ds.time_count = 0;
         sensor_devices[deviceID] = ds;
         device_to_garden[deviceID] = gardenID;
 
@@ -733,8 +817,8 @@ void seed() {
 int main() {
     srand(time(nullptr));
     seed();
-    // thread decay_thread(auto_decay_loop);
-    // decay_thread.detach();
+    thread interval_thread(auto_send_interval);
+    interval_thread.detach();
     int listenfd, connfd;
     socklen_t clilen;
     struct sockaddr_in servaddr{}, cliaddr{};
