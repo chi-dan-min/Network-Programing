@@ -35,18 +35,100 @@ struct App{
     uint32_t token;
 };
 
+struct DeviceSensor {
+    // Sensor values
+    uint8_t soil_moisture;
+    uint8_t N, P, K;
+    uint8_t fert_C, fert_V;
+    uint8_t decay_rate;
+    
+    // Inteval Time
+    uint8_t T;             //minute 
+    // Thresholds
+    uint8_t Hmin, Hmax;
+    uint8_t Nmin, Pmin, Kmin;
+
+    // AUTO SCHEDULES
+    vector<uint32_t> watering_times;     // tưới hàng ngày
+    vector<uint32_t> fertilizing_times;  // bón phân hàng ngày
+    vector<uint32_t> lighting_times;     // bật đèn hàng ngày
+
+    // DIRECT CONTROL — hoạt động độc lập
+    uint8_t pump_on;       // 1 = bật bơm
+    uint8_t fert_on;       // 1 = bón phân
+    uint8_t light_on;      // 1 = bật đèn
+
+    uint32_t pump_timeout; 
+    uint32_t fert_timeout;
+    uint32_t light_timeout;
+};
+
+
 // --- Data structures ---
 vector<App> apps;
 mutex apps_mutex;
 
-map<string, string> app_credentials;          // AppID -> password
+map<string, string> app_credentials;            // AppID -> password
 mutex credentials_mutex;
 
-map<string, vector<uint8_t>> gardens;         // AppID -> list of GardenID
+map<string, vector<uint8_t>> gardens;           // AppID -> list of GardenID
 mutex gardens_mutex;
 
-map<uint8_t, uint8_t> device_to_garden;       // DeviceID -> GardenID
+map<uint8_t, uint8_t> device_to_garden;         // DeviceID -> GardenID
 mutex devices_mutex;
+
+map<uint8_t, DeviceSensor> sensor_devices;      // device_id -> DeviceSensor
+mutex sensor_devices_mutex;
+
+map<uint32_t, int> token_to_clientfd;           // token -> socket FD
+mutex token_client_mutex;
+
+void print_device_status(const DeviceSensor &dev, uint8_t deviceID, uint8_t gardenID) {
+    cout << "[Device " << int(deviceID) << "] "
+         << "Garden=" << int(gardenID)
+         << " | H=" << int(dev.soil_moisture)
+         << " | N=" << int(dev.N)
+         << " | P=" << int(dev.P)
+         << " | K=" << int(dev.K)
+         << " | C=" << int(dev.fert_C)
+         << " | V=" << int(dev.fert_V)
+         << " | T=" << int(dev.T) 
+         << endl;
+}
+
+void auto_decay_loop() {
+    while (true) {
+        {
+            lock_guard<mutex> lock(sensor_devices_mutex);
+
+            for (auto &kv : sensor_devices) {
+                DeviceSensor &dev = kv.second;
+                uint8_t deviceID = kv.first;
+                // Skip devices not assigned to any garden
+                if (device_to_garden[deviceID] == 0)
+                    continue;
+
+                // Humidity reduction
+                dev.soil_moisture = (dev.soil_moisture > dev.decay_rate)
+                    ? dev.soil_moisture - dev.decay_rate
+                    : 0;
+
+                // NPK reduction (half rate)
+                uint8_t npk_decay = max<uint8_t>(1, dev.decay_rate / 2);
+
+                dev.N = (dev.N > npk_decay) ? dev.N - npk_decay : 0;
+                dev.P = (dev.P > npk_decay) ? dev.P - npk_decay : 0;
+                dev.K = (dev.K > npk_decay) ? dev.K - npk_decay : 0;
+
+                print_device_status(dev, deviceID, device_to_garden[deviceID]);
+            }
+            cout << endl;
+        }
+
+        sleep(1); // decay mỗi 60 giây
+    }
+}
+
 
 App* findAppByToken(uint32_t token) {
     lock_guard<mutex> lock(apps_mutex);
@@ -122,7 +204,10 @@ void handle_connect_request(int client_fd, const ConnectRequest& req, uint8_t* s
             lock_guard<mutex> lock(apps_mutex);
             apps.push_back(newApp);
         }
-
+        {
+            lock_guard<mutex> lock(token_client_mutex);
+            token_to_clientfd[token] = client_fd;
+        }
         packet_len = serialize_connect_response(token, send_buffer);
         print_buffer("Server send: Connect Response", send_buffer, packet_len);
         send(client_fd, send_buffer, packet_len, 0);
@@ -524,6 +609,10 @@ void client_handler(int client_fd) {
         App* app = findAppByToken(token);
         if (app)
             app->token = 0; 
+        {
+            lock_guard<mutex> lock(token_client_mutex);
+            token_to_clientfd.erase(token);
+        }
     }
     cout << "Client " << client_fd << " exit\n";
 
@@ -574,25 +663,78 @@ void seed() {
     ifstream device_file("device.txt");
     if (!device_file) {
         cerr << "Cannot open device.txt!" << endl;
-    } else {
-        string line;
-        while (getline(device_file, line)) {
-            if (line.empty()) continue;
-            istringstream iss(line);
-            uint32_t deviceID, gardenID;
-            if (iss >> deviceID >> gardenID) {
-                lock_guard<mutex> lock(devices_mutex);
-                device_to_garden[static_cast<uint8_t>(deviceID)] = static_cast<uint8_t>(gardenID);
-                cout << "Device loaded: DeviceID=" << deviceID << ", GardenID=" << gardenID << endl;
-            }
-        }
-        device_file.close();
+        return;
     }
+
+    string line;
+    while (getline(device_file, line)) {
+        if (line.empty()) continue;
+        istringstream iss(line);
+        int deviceID, gardenID;
+        iss >> deviceID >> gardenID;
+
+        DeviceSensor ds{};
+
+        if (gardenID != 0) {
+            // nếu có thêm Hmin, Hmax, Nmin, Pmin, Kmin, C, V, T
+            int Hmin, Hmax, Nmin, Pmin, Kmin, C, V, T;
+            iss >> Hmin >> Hmax >> Nmin >> Pmin >> Kmin >> C >> V >> T;
+            ds.Hmin = Hmin;
+            ds.Hmax = Hmax;
+            ds.Nmin = Nmin;
+            ds.Pmin = Pmin;
+            ds.Kmin = Kmin;
+            ds.fert_C = C;
+            ds.fert_V = V;
+            ds.T = T;
+        }
+        else {
+            // fallback nếu thiếu, vẫn random trong khoảng hợp lý
+            ds.Hmin = 35; ds.Hmax = 70;
+            ds.Nmin = 20; ds.Pmin = 15; ds.Kmin = 15;
+            ds.fert_C = 5; ds.fert_V = 5; ds.T = 2;
+        }
+
+        // Sensor khởi tạo random
+        ds.soil_moisture = rand()%51 + 30; // 30-80
+        ds.N = rand()%31 + 20;             // 20-50
+        ds.P = rand()%31 + 10;             // 10-40
+        ds.K = rand()%31 + 10;             // 10-40
+        ds.decay_rate = 1 + rand()%3;      // 1-3
+
+        // Giờ tưới mặc định
+        ds.watering_times.push_back(8*60);   // 08:00
+        ds.watering_times.push_back(18*60);  // 18:00
+
+        // Giờ bón phân mặc định (NPK)
+        ds.fertilizing_times.push_back(9*60);   // 09:00
+        ds.fertilizing_times.push_back(21*60);  // 21:00
+
+        // Giờ bật đèn mặc định
+        ds.lighting_times.push_back(6*60);   // 06:00
+        ds.lighting_times.push_back(17*60);  // 17:00
+
+        sensor_devices[deviceID] = ds;
+        device_to_garden[deviceID] = gardenID;
+
+        cout << "Loaded DeviceID=" << deviceID
+             << " GardenID=" << gardenID
+             << (gardenID != 0 
+                 ? " Thresholds: H=" + to_string(ds.Hmin) + "-" + to_string(ds.Hmax) +
+                   ", NPK=" + to_string(ds.Nmin) + "," + to_string(ds.Pmin) + "," + to_string(ds.Kmin) +
+                   ", C/V=" + to_string(ds.fert_C) + "/" + to_string(ds.fert_V) + ", T=" + to_string(ds.T)
+                 : "")
+             << endl;
+    }
+
+    device_file.close();
 }
 
 int main() {
     srand(time(nullptr));
     seed();
+    // thread decay_thread(auto_decay_loop);
+    // decay_thread.detach();
     int listenfd, connfd;
     socklen_t clilen;
     struct sockaddr_in servaddr{}, cliaddr{};
