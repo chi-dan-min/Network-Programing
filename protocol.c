@@ -366,8 +366,23 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
         // 100 - Data 
         //------------------------------
         case MSG_TYPE_DATA: {
-            if (payload_len < sizeof(DeviceInfo)) return -1;
-            memcpy(&out_packet->data.inteval_data, payload, sizeof(DeviceInfo));
+            if (payload_len < 9) {
+                return -1;
+            }
+
+            IntervalData* d = &out_packet->data.interval_data;
+
+            d->dev_id = payload[0];
+
+            uint32_t ts_net;
+            memcpy(&ts_net, &payload[1], 4);
+            d->timestamp = ntohl(ts_net);
+
+            d->humidity = payload[5];
+            d->n_level  = payload[6];
+            d->p_level  = payload[7];
+            d->k_level  = payload[8];
+
             break;
         }
 

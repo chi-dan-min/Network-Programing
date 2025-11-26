@@ -129,8 +129,6 @@ bool client_login(int sockfd, uint32_t& token) {
             continue;
         }
 
-        cout << "Packet type received: " << (int)packet.type << endl;
-
         switch (packet.type) {
             case MSG_TYPE_CONNECT_SERVER: {
                 token = packet.data.connect_res.token;
@@ -370,7 +368,7 @@ bool client_add_device(int sockfd, uint32_t token) {
     for (auto devid : available_devices) cout << (int)devid << " ";
     cout << "\n";
 
-    cout << "Enter new Device ID(or '0' to cancel) : ";
+    cout << "Enter Device ID(or '0' to cancel) : ";
     cin >> d; 
     if(d == 0){
         cout << "Cancelled adding Device.\n";
@@ -417,29 +415,28 @@ bool client_delete_garden(int sockfd, uint32_t token) {
     memset(recv_buffer, 0, sizeof(recv_buffer));
 
     if (current_gardens.empty()) {
-        cout << "No Gardens available to delete.\n";
+        cout << "No gardens available to delete.\n";
         return false;
     }
-    
-    cout << "Current Gardens: ";
+
+    cout << "Gardens currently registered: ";
     for (auto gid : current_gardens) cout << (int)gid << " ";
     cout << "\n";
-    
 
     uint32_t garden_id_to_delete;
-    cout << "Enter Garden ID to delete (or '0' to cancel) : ";
+    cout << "Enter the Garden ID to delete (0 = Cancel): ";
     cin >> garden_id_to_delete;
-    if(garden_id_to_delete == 0){
-        cout << "Cancelled deleting Garden.\n";
+
+    if (garden_id_to_delete == 0) {
+        cout << "Deletion cancelled.\n";
         return false;
     }
-    cin.ignore(); // bỏ ký tự newline
+    cin.ignore();
 
     packet_len = serialize_garden_del(token, static_cast<uint8_t>(garden_id_to_delete), send_buffer);
     send(sockfd, send_buffer, packet_len, 0);
     print_buffer("Client send: Garden Delete Request", send_buffer, packet_len);
 
-    // nhận response
     packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
     if (packet_len <= 0) {
         cerr << "Server disconnected.\n";
@@ -453,8 +450,7 @@ bool client_delete_garden(int sockfd, uint32_t token) {
             if (packet.type == MSG_TYPE_CMD_RESPONSE) {
                 int status_code = packet.data.cmd_response.status_code;
                 print_status_message(status_code);
-                if(status_code == STATUS_OK){
-                    // Xóa garden khỏi danh sách local
+                if (status_code == STATUS_OK) {
                     auto it = std::find(current_gardens.begin(), current_gardens.end(), garden_id_to_delete);
                     if (it != current_gardens.end()) {
                         current_gardens.erase(it);
@@ -478,28 +474,29 @@ bool client_delete_device(int sockfd, uint32_t token) {
     memset(recv_buffer, 0, sizeof(recv_buffer));
 
     if (current_gardens.empty()) {
-        cout << "No Gardens available. Cannot delete device.\n";
+        cout << "No gardens registered yet. Cannot delete a device.\n";
         return false;
     }
 
-    cout << "Available Gardens: ";
+    cout << "Gardens currently registered: ";
     for (auto gid : current_gardens) cout << (int)gid << " ";
     cout << "\n";
 
     uint8_t garden_id, dev_id;
     int g, d;
-    cout << "Enter Garden ID to delete device from (or '0' to cancel) : ";
-    cin >> g; 
-    if(g == 0){
-        cout << "Cancelled deleting Device.\n";
+
+    cout << "Enter the Garden ID where the device is located (0 = Cancel): ";
+    cin >> g;
+    if (g == 0) {
+        cout << "Deletion cancelled.\n";
         return false;
     }
     garden_id = static_cast<uint8_t>(g);
 
-    cout << "Enter Device ID to delete (or '0' to cancel) : ";
-    cin >> d; 
-    if(d == 0){
-        cout << "Cancelled deleting Device.\n";
+    cout << "Enter the Device ID to delete (0 = Cancel): ";
+    cin >> d;
+    if (d == 0) {
+        cout << "Deletion cancelled.\n";
         return false;
     }
     dev_id = static_cast<uint8_t>(d);
@@ -509,25 +506,22 @@ bool client_delete_device(int sockfd, uint32_t token) {
     send(sockfd, send_buffer, packet_len, 0);
     print_buffer("Client send: Device Delete Request", send_buffer, packet_len);
 
-    // Nhận response
     packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
     if (packet_len <= 0) {
         cerr << "Server disconnected.\n";
         return false;
     }
     print_buffer("Client receive: Device Delete Response", recv_buffer, packet_len);
+
     if (packet_len > 0) {
         ParsedPacket packet;
         if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
             if (packet.type == MSG_TYPE_CMD_RESPONSE) {
                 int status_code = packet.data.cmd_response.status_code;
                 print_status_message(status_code);
-                if(status_code == STATUS_OK){
-                    // Logic đảo ngược của hàm add:
-                    // Hàm add của bạn xóa (hoặc có ý định xóa) khỏi available_devices
-                    // Vậy hàm delete nên thêm nó trở lại vào available_devices
+                if (status_code == STATUS_OK) {
                     available_devices.push_back(dev_id);
-                    cout << "Device " << (int)dev_id << " added back to available list.\n";
+                    cout << "Device " << (int)dev_id << " restored to available device list.\n";
                 }
             } else {
                 cout << "Unexpected response type.\n";

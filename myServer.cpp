@@ -65,8 +65,6 @@ struct DeviceSensor {
 
     uint8_t time_count;    //Thời gian đếm để gửi Interval Data
 };
-
-
 // --- Data structures ---
 vector<App> apps;
 mutex apps_mutex;
@@ -274,7 +272,7 @@ bool authenticate_app(const string& appID, const string& password) {
 }
 
 void handle_connect_request(int client_fd, const ConnectRequest& req, uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len, uint32_t& token) {
-    print_buffer("Server receive: Connect Request", recv_buffer, sizeof(recv_buffer));
+    print_buffer("Server receive: Connect Request", recv_buffer, packet_len);
     cout << "AppID: " << req.appID << endl;
     cout << "Password: " << req.password << "\n\n";
 
@@ -319,7 +317,7 @@ void handle_scan_request(int client_fd, const ScanRequest& req,
                          uint8_t* send_buffer, const uint8_t* recv_buffer,
                          int& packet_len){
     cout << "Handling scan request from token: " << req.token << endl;
-    print_buffer("Server receive: Scan Request", recv_buffer, sizeof(recv_buffer));
+    print_buffer("Server receive: Scan Request", recv_buffer, packet_len);
 
     App* app = findAppByToken(req.token);
     if (!app) {
@@ -346,7 +344,7 @@ void handle_info_request(int client_fd, const InfoRequest& req,
                          uint8_t* send_buffer, const uint8_t* recv_buffer,
                          int& packet_len){
     cout << "Handling info request from token: " << req.token << endl;
-    print_buffer("Server receive: Info Request", recv_buffer, sizeof(recv_buffer));
+    print_buffer("Server receive: Info Request", recv_buffer, packet_len);
 
     // --- 1. Kiểm tra token ---
     App* app = findAppByToken(req.token);
@@ -415,7 +413,7 @@ void handle_info_request(int client_fd, const InfoRequest& req,
 void handle_garden_add_request(int client_fd, const GardenAdd& req,
                                uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len){
     cout << "Handling info request from token: " << req.token << endl;
-    print_buffer("Server receive: Garden Add Request", recv_buffer, sizeof(recv_buffer));
+    print_buffer("Server receive: Garden Add Request", recv_buffer, packet_len);
 
     App* app = findAppByToken(req.token);
     if (!app) {
@@ -449,7 +447,7 @@ void handle_garden_add_request(int client_fd, const GardenAdd& req,
 void handle_device_add_request(int client_fd, const DeviceAdd& req,
                                uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len){
     cout << "Handling info request from token: " << req.token << endl;
-    print_buffer("Server receive: Device Add Request", recv_buffer, sizeof(recv_buffer));
+    print_buffer("Server receive: Device Add Request", recv_buffer, packet_len);
     App* app = findAppByToken(req.token);
     if (!app) {
         packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
@@ -497,7 +495,7 @@ void handle_device_add_request(int client_fd, const DeviceAdd& req,
 void handle_garden_delete_request(int client_fd, const GardenDel& req,
                                   uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len){
     cout << "Handling garden delete request from token: " << req.token << endl;
-    print_buffer("Server receive: Garden Delete Request", recv_buffer, sizeof(recv_buffer));
+    print_buffer("Server receive: Garden Delete Request", recv_buffer, packet_len);
 
     App* app = findAppByToken(req.token);
     if (!app) {
@@ -562,7 +560,7 @@ void handle_garden_delete_request(int client_fd, const GardenDel& req,
 void handle_device_delete_request(int client_fd, const DeviceDel& req,
                                   uint8_t* send_buffer, const uint8_t* recv_buffer, int& packet_len){
     cout << "Handling device delete request from token: " << req.token << endl;
-    print_buffer("Server receive: Device Delete Request", recv_buffer, sizeof(recv_buffer));
+    print_buffer("Server receive: Device Delete Request", recv_buffer, packet_len);
 
     App* app = findAppByToken(req.token);
     if (!app) {
@@ -817,8 +815,8 @@ void seed() {
 int main() {
     srand(time(nullptr));
     seed();
-    thread interval_thread(auto_send_interval);
-    interval_thread.detach();
+    // thread interval_thread(auto_send_interval);
+    // interval_thread.detach();
     int listenfd, connfd;
     socklen_t clilen;
     struct sockaddr_in servaddr{}, cliaddr{};

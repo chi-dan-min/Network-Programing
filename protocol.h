@@ -153,7 +153,7 @@ typedef struct {
         ScanResponse scan_res;
         InfoRequest info_req;
         InfoResponse info_res;
-        IntervalData inteval_data;
+        IntervalData interval_data;
         Alert alert;
         CmdResponse cmd_response;
         GardenAdd garden_add;
