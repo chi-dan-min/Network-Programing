@@ -40,9 +40,10 @@ struct DeviceSensor {
     // Sensor values
     uint8_t soil_moisture;
     uint8_t N, P, K;
-    uint8_t fert_C, fert_V;
-    uint8_t decay_rate;
-    
+    uint8_t fert_C, fert_V; // nồng độ C gam/lít, lượng nước V lít
+    uint8_t decay_rate; 
+    unit8_t power; // 0 -> 100% công suất đèn
+
     // Inteval Time
     uint8_t T;             //minute 
     // Thresholds
@@ -50,9 +51,9 @@ struct DeviceSensor {
     uint8_t Nmin, Pmin, Kmin;
 
     // AUTO SCHEDULES
-    vector<uint32_t> watering_times;     // tưới hàng ngày
-    vector<uint32_t> fertilizing_times;  // bón phân hàng ngày
-    vector<uint32_t> lighting_times;     // bật đèn hàng ngày
+    vector<uint32_t> watering_times_hmax;      // tưới hàng ngày 
+    vector<uint32_t> watering_times_hmin;      
+    vector<pair<uint32_t, uint32_t>> lighting_times;     // bật đèn hàng ngày
 
     // DIRECT CONTROL — hoạt động độc lập
     uint8_t pump_on;       // 1 = bật bơm
@@ -695,7 +696,7 @@ void client_handler(int client_fd) {
             app->token = 0; 
             app->sockfd = 0;
         }
-            
+
     }
     cout << "Client " << client_fd << " exit\n";
 
@@ -796,7 +797,7 @@ void seed() {
         // Giờ bật đèn mặc định
         ds.lighting_times.push_back(6*60);   // 06:00
         ds.lighting_times.push_back(17*60);  // 17:00
-
+        
         ds.time_count = 0;
         sensor_devices[deviceID] = ds;
         device_to_garden[deviceID] = gardenID;
