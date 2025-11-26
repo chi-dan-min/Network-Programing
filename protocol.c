@@ -195,6 +195,122 @@ int serialize_device_del(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint
     return 8;
 }
 
+int serialize_set_parameter(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t param_value, uint8_t* out_buffer) {
+    if (!out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_SET_PARAMETER;
+    out_buffer[1] = 4 + 3;  // token(4) + dev_id(1) + param_id(1) + param_value(1)
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = dev_id;
+    out_buffer[7] = param_id;
+    out_buffer[8] = param_value;
+
+    return 9;
+}
+
+int serialize_set_pump_schedule(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t quantity_time, const uint32_t* time_array, uint8_t* out_buffer) {
+    if (!out_buffer || !time_array) return -1;
+
+    out_buffer[0] = MSG_TYPE_SET_PUMP_SCHEDULE;
+    out_buffer[1] = 4 + 3 + (quantity_time * 4);  // token(4) + dev_id(1) + param_id(1) + quantity_time(1) + time_array
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = dev_id;
+    out_buffer[7] = param_id;
+    out_buffer[8] = quantity_time;
+
+    for (int i = 0; i < quantity_time; i++) {
+        uint32_t net_time = htonl(time_array[i]);
+        memcpy(&out_buffer[9 + i * 4], &net_time, 4);
+    }
+
+    return 9 + (quantity_time * 4);
+}
+int serialize_set_light_schedule(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t quantity_time, const uint32_t* time_array, uint8_t* out_buffer) {
+    if (!out_buffer || !time_array) return -1;
+
+    out_buffer[0] = MSG_TYPE_SET_LIGHT_SCHEDULE;
+    out_buffer[1] = 4 + 3 + (quantity_time * 4);  // token(4) + dev_id(1) + param_id(1) + quantity_time(1) + time_array
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = dev_id;
+    out_buffer[7] = param_id;
+    out_buffer[8] = quantity_time;
+
+    for (int i = 0; i < quantity_time; i++) {
+        uint32_t net_time = htonl(time_array[i]);
+        memcpy(&out_buffer[9 + i * 4], &net_time, 4);
+    }
+
+    return 9 + (quantity_time * 4);
+}
+
+int serialize_change_password(uint32_t token, const char* appID, uint8_t old_password_len, const char* old_password, const char* new_password, uint8_t* out_buffer) {
+    if (!out_buffer || !new_password) return -1;
+    uint8_t new_password_len = (uint8_t)strlen(new_password);
+    out_buffer[0] = MSG_TYPE_CHANGE_PASSWORD;
+    out_buffer[1] = 4 + APPID_FIXED_LENGTH + 1 + old_password_len + new_password_len;  // token(4) + appID + old_pass_len(1) + old_pass + new_pass
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+    memcpy(out_buffer + 6, appID, APPID_FIXED_LENGTH);
+    out_buffer[6 + APPID_FIXED_LENGTH] = old_password_len;
+    memcpy(out_buffer + 7 + APPID_FIXED_LENGTH, old_password, old_password_len);
+    memcpy(out_buffer + 7 + APPID_FIXED_LENGTH + old_password_len, new_password, new_password_len);
+    return 7 + APPID_FIXED_LENGTH + 1 + old_password_len + new_password_len;
+}
+
+int serialize_set_direct_pump(uint32_t token, uint8_t dev_id, uint8_t btn, uint8_t* out_buffer) {
+    if (!out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_SET_DIRECT_PUMP;
+    out_buffer[1] = 4 + 2;  // token(4) + dev_id(1) + btn(1)
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = dev_id;
+    out_buffer[7] = btn;
+
+    return 8;
+}
+
+int serialize_set_direct_light(uint32_t token, uint8_t dev_id, uint8_t btn, uint8_t* out_buffer) {
+    if (!out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_SET_DIRECT_LIGHT;
+    out_buffer[1] = 4 + 2;  // token(4) + dev_id(1) + btn(1)
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = dev_id;
+    out_buffer[7] = btn;
+
+    return 8;
+}
+
+int serialize_set_direct_fert(uint32_t token, uint8_t dev_id, uint8_t btn, uint8_t* out_buffer) {
+    if (!out_buffer) return -1;
+
+    out_buffer[0] = MSG_TYPE_SET_DIRECT_FERT;
+    out_buffer[1] = 4 + 2;  // token(4) + dev_id(1) + btn(1)
+
+    uint32_t t = htonl(token);
+    memcpy(&out_buffer[2], &t, 4);
+
+    out_buffer[6] = dev_id;
+    out_buffer[7] = btn;
+
+    return 8;
+}
+
 
 //DESERIALIZATION
 int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* out_packet) {
@@ -389,8 +505,94 @@ int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* o
             out_packet->data.cmd_response.status_code = payload[0];
             break;
         }
-
-
+        //------------------------------
+        // 40 - Set Parameter
+        //------------------------------
+        case MSG_TYPE_SET_PARAMETER: {
+            if (payload_len < 6) return -1;
+            out_packet->data.set_parameter.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.set_parameter.dev_id = payload[4];
+            out_packet->data.set_parameter.param_id = payload[5];
+            out_packet->data.set_parameter.param_value = payload[6];
+            break;
+        }
+        //------------------------------
+        // 50 - Set Pump Schedule
+        //------------------------------
+        case MSG_TYPE_SET_PUMP_SCHEDULE: {
+            if (payload_len < 7) return -1;
+            out_packet->data.set_pump_schedule.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.set_pump_schedule.dev_id = payload[4];
+            out_packet->data.set_pump_schedule.param_id = payload[5];
+            out_packet->data.set_pump_schedule.quantity_time = payload[6];
+            if (payload_len != 7 + out_packet->data.set_pump_schedule.quantity_time * 4) return -1;
+            for (int i = 0; i < out_packet->data.set_pump_schedule.quantity_time; i++) {
+                out_packet->data.set_pump_schedule.time_array[i] = ntohl(*(uint32_t*)(payload + 7 + i * 4));
+            }
+            break;
+        }
+        //------------------------------
+        // 51 - Set Light Schedule
+        //------------------------------
+        case MSG_TYPE_SET_LIGHT_SCHEDULE: {
+            if (payload_len < 7) return -1;
+            out_packet->data.set_light_schedule.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.set_light_schedule.dev_id = payload[4];
+            out_packet->data.set_light_schedule.param_id = payload[5];
+            out_packet->data.set_light_schedule.quantity_time = payload[6];
+            if (payload_len != 7 + out_packet->data.set_light_schedule.quantity_time * 4) return -1;
+            for (int i = 0; i < out_packet->data.set_light_schedule.quantity_time; i++) {
+                out_packet->data.set_light_schedule.time_array[i] = ntohl(*(uint32_t*)(payload + 7 + i * 4));
+            }
+            break;
+        }
+        //------------------------------
+        // 12 - Change Password
+        //------------------------------
+        case MSG_TYPE_CHANGE_PASSWORD: {
+            if (payload_len < 5 + APPID_FIXED_LENGTH) return -1;
+            out_packet->data.change_password.token = ntohl(*(uint32_t*)payload);
+            memcpy(out_packet->data.change_password.appID, payload + 4, APPID_FIXED_LENGTH);
+            out_packet->data.change_password.appID[APPID_FIXED_LENGTH] = '\0';
+            uint8_t old_pass_len = payload[4 + APPID_FIXED_LENGTH];
+            if (payload_len < 5 + APPID_FIXED_LENGTH + old_pass_len) return -1;
+            memcpy(out_packet->data.change_password.old_password, payload + 5 + APPID_FIXED_LENGTH, old_pass_len);
+            out_packet->data.change_password.old_password[old_pass_len] = '\0';
+            memcpy(out_packet->data.change_password.new_password, payload + 5 + APPID_FIXED_LENGTH + old_pass_len, payload_len - (5 + APPID_FIXED_LENGTH + old_pass_len));
+            out_packet->data.change_password.new_password[payload_len - (5 + APPID_FIXED_LENGTH + old_pass_len)] = '\0';
+            out_packet->data.change_password.old_pass_len = old_pass_len;
+            break;
+        }
+        //------------------------------
+        // 60 - Set Direct Pump
+        //------------------------------
+        case MSG_TYPE_SET_DIRECT_PUMP: {
+            if (payload_len < 6) return -1;
+            out_packet->data.set_direct_pump.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.set_direct_pump.dev_id = payload[4];
+            out_packet->data.set_direct_pump.btn = payload[5];
+            break;
+        }
+        //------------------------------
+        // 61 - Set Direct Light
+        //------------------------------
+        case MSG_TYPE_SET_DIRECT_LIGHT: {
+            if (payload_len < 6) return -1;
+            out_packet->data.set_direct_light.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.set_direct_light.dev_id = payload[4];
+            out_packet->data.set_direct_light.btn = payload[5];
+            break;
+        }
+        //------------------------------
+        // 62 - Set Direct Fert
+        //------------------------------
+        case MSG_TYPE_SET_DIRECT_FERT: {
+            if (payload_len < 6) return -1;
+            out_packet->data.set_direct_fert.token = ntohl(*(uint32_t*)payload);
+            out_packet->data.set_direct_fert.dev_id = payload[4];
+            out_packet->data.set_direct_fert.btn = payload[5];
+            break;
+        }
         //------------------------------
         // Unknown type
         //------------------------------

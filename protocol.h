@@ -20,6 +20,13 @@
 #define MSG_TYPE_GARDEN_DEL                 81          // 0x51 
 #define MSG_TYPE_DEVICE_ADD                 90          // 0x5A 
 #define MSG_TYPE_DEVICE_DEL                 91          // 0x5B 
+#define MSG_TYPE_SET_PARAMETER              40          // 0x28
+#define MSG_TYPE_SET_PUMP_SCHEDULE          50          // 0x32
+#define MSG_TYPE_SET_LIGHT_SCHEDULE         51          // 0x33
+#define MSG_TYPE_CHANGE_PASSWORD            12          // 0x0C
+#define MSG_TYPE_SET_DIRECT_PUMP            60          // 0x3C
+#define MSG_TYPE_SET_DIRECT_LIGHT           61          // 0x3D
+#define MSG_TYPE_SET_DIRECT_FERT            62          // 0x3E
 
 //CMD_RESPONSE      
 #define STATUS_OK                           0x00         // Thành công
@@ -49,6 +56,7 @@
 #define MAX_DEVICES_PER_GARDEN              10
 #define MAX_GARDENS                         10
 #define APPID_FIXED_LENGTH                  8
+#define MAX_TIME_STAMP                      50
 
 // --- Cấu trúc cho dữ liệu đã giải gói tin ---
 
@@ -142,6 +150,63 @@ typedef struct {
     uint8_t  garden_id;
     uint8_t  dev_id;
 } DeviceDel; 
+
+// 11. Set parameters
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  dev_id;
+    uint8_t  param_id;
+    uint8_t  param_value;
+} SetParameter;
+
+// 12. Set pump schedule
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  dev_id;
+    uint8_t  param_id;
+    uint8_t  quantity_time; // Số lần tưới trong ngày
+    uint32_t time[MAX_TIME_STAMP]; // Giờ bắt đầu (HH:MM)
+} SetPumpSchedule;
+
+// 13. Set light schedule
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  dev_id;
+    uint8_t  param_id;
+    uint8_t  quantity_time; // Số lần bật&tắt trong ngày
+    uint32_t time[MAX_TIME_STAMP]; // Giờ bật/tắt (HH:MM)
+} SetLightSchedule;
+
+// 14. Change Password
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    char appID[APPID_FIXED_LENGTH + 1];
+    char old_password[MAX_BUFFER_SIZE - 10]; // Buffer để chứa mật khẩu cũ
+    char     new_password[MAX_BUFFER_SIZE - 6]; // Buffer để chứa mật khẩu mới
+    uint8_t  old_pass_len;
+} ChangePassword;
+// 15. Set direct pump command
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  dev_id;
+    uint8_t btn; // bật/tắt
+} SetDirectPump;
+
+// 16. Set direct light command
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  dev_id;
+    uint8_t btn; // bật/tắt
+} SetDirectLight;
+
+//17. Set direct fert command
+typedef struct {
+    uint32_t token; // 4 bytes (Cần htonl/ntohl)
+    uint8_t  dev_id;
+    uint8_t btn; // bật/tắt
+} SetDirectFert;
+
+
 // Cấu trúc packet tổng quát sau khi giải gói tin
 typedef struct {
     uint8_t type;
@@ -160,6 +225,13 @@ typedef struct {
         GardenDel garden_del;
         DeviceAdd device_add;
         DeviceDel device_del; 
+        SetParameter set_parameter;
+        SetPumpSchedule set_pump_schedule;
+        SetLightSchedule set_light_schedule;
+        ChangePassword change_password;
+        SetDirectPump set_direct_pump;
+        SetDirectLight set_direct_light;
+        SetDirectFert set_direct_fert;
     } data;
 } ParsedPacket;
 
@@ -243,6 +315,47 @@ int serialize_device_add(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint
  */
 int serialize_device_del(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint8_t* out_buffer);
 
+/**
+ * @brief Gói tin Set Parameter (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer 
+ */
+int serialize_set_parameter(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t param_value, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Set Pump Schedule (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer 
+ */
+int serialize_set_pump_schedule(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t quantity_time, const uint32_t* time_array, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Set Light Schedule (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer 
+ */
+int serialize_set_light_schedule(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t quantity_time, const uint32_t* time_array, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Change Password (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer 
+ */
+int serialize_change_password(uint32_t token, const char* appID, uint8_t old_password_len, const char* old_password, const char* new_password, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Set Direct Pump Command (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer 
+ */
+int serialize_set_direct_pump(uint32_t token, uint8_t dev_id, uint8_t btn, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Set Direct Light Command (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer 
+ */
+int serialize_set_direct_light(uint32_t token, uint8_t dev_id, uint8_t btn, uint8_t* out_buffer);
+
+/**
+ * @brief Gói tin Set Direct Fert Command (Client -> Server)
+ * @return Tổng số byte đã ghi vào buffer 
+ */
+int serialize_set_direct_fert(uint32_t token, uint8_t dev_id, uint8_t btn, uint8_t* out_buffer);
 
 // --- Khai báo hàm GIẢI GÓI TIN (Deserialization) ---
 
