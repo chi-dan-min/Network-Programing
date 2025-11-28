@@ -52,18 +52,13 @@ struct DeviceSensor
     uint8_t Nmin, Pmin, Kmin;
 
     // AUTO SCHEDULES
-    vector<uint32_t> watering_times_hmax; // tưới hàng ngày
-    vector<uint32_t> watering_times_hmin;
+    vector<uint32_t> watering_times; // tưới hàng ngày
     vector<pair<uint32_t, uint32_t>> lighting_times; // bật đèn hàng ngày
 
     // DIRECT CONTROL — hoạt động độc lập
     uint8_t pump_on;  // 1 = bật bơm
     uint8_t fert_on;  // 1 = bón phân
     uint8_t light_on; // 1 = bật đèn
-
-    uint32_t pump_timeout;
-    uint32_t fert_timeout;
-    uint32_t light_timeout;
 
     uint8_t time_count; // Thời gian đếm để gửi Interval Data
 };
@@ -93,11 +88,12 @@ App *findAppByAppID(const string &appID);
 App *findAppByDeviceID(const uint8_t &deviceID);
 vector<uint8_t> get_unassigned_devices_string();
 bool authenticate_app(const string &appID, const string &password);
-
+bool check_device_ownership(const string& appID, uint8_t dev_id);
+string format_timestamp(uint32_t ts); 
 // Auto Threads
 void auto_decay_loop();
 void send_interval_data(int client_fd, const IntervalData &data);
-void auto_send_interval();
+void tick_event();
 
 // Handlers
 void handle_connect_request(int client_fd, const ConnectRequest &req,
@@ -149,4 +145,8 @@ void handle_set_direct_fert(int client_fd, const SetDirectFert &req,
 void handle_change_password(int client_fd, const ChangePassword &req,
                             uint8_t *send_buffer, const uint8_t *recv_buffer,
                             int &packet_len);
+void handle_settings_request(int client_fd, const SettingsRequest &req,
+                            uint8_t *send_buffer, const uint8_t *recv_buffer,
+                            int &packet_len);
+
 #endif // SERVER_H

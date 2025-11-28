@@ -22,6 +22,8 @@ extern "C" {
 #define MSG_TYPE_SET_DIRECT_PUMP            60          // 0x3C
 #define MSG_TYPE_SET_DIRECT_LIGHT           61          // 0x3D
 #define MSG_TYPE_SET_DIRECT_FERT            62          // 0x3E
+#define MSG_TYPE_SETTINGS_CLIENT            70          // 0x66
+#define MSG_TYPE_SETTINGS_SERVER            71          // 0x67    
 #define MSG_TYPE_GARDEN_ADD                 80          // 0x50 
 #define MSG_TYPE_GARDEN_DEL                 81          // 0x51 
 #define MSG_TYPE_DEVICE_ADD                 90          // 0x5A 
@@ -63,13 +65,15 @@ extern "C" {
 
 
 // DEVICE PARAMETER IDs
-#define PARAM_ID_T_DELAY   0  // T: Thời gian
-#define PARAM_ID_H_MIN     1
-#define PARAM_ID_H_MAX     2
-#define PARAM_ID_N_MIN     3  // Ngưỡng N tối thiểu
-#define PARAM_ID_P_MIN     4  // Ngưỡng P tối thiểu
-#define PARAM_ID_K_MIN     5  // Ngưỡng K tối thiểu
-#define PARAM_ID_POWER     6
+#define PARAM_ID_T_DELAY   1  // T: Thời gian
+#define PARAM_ID_H_MIN     2
+#define PARAM_ID_H_MAX     3
+#define PARAM_ID_N_MIN     4  // Ngưỡng N tối thiểu
+#define PARAM_ID_P_MIN     5  // Ngưỡng P tối thiểu
+#define PARAM_ID_K_MIN     6  // Ngưỡng K tối thiểu
+#define PARAM_ID_POWER     7
+#define PARAM_ID_FERT_C     8
+#define PARAM_ID_FERT_V     9
 
 // --- Cấu trúc cho dữ liệu đã giải gói tin 
 
@@ -167,6 +171,7 @@ typedef struct {
 typedef struct {
     uint32_t token; // 4 bytes (Cần htonl/ntohl)
     uint8_t  dev_id;
+    uint8_t garden_id;
     uint8_t  param_id;
     uint8_t  param_value;
 } SetParameter;
@@ -175,7 +180,6 @@ typedef struct {
 typedef struct {
     uint32_t token; // 4 bytes (Cần htonl/ntohl)
     uint8_t  dev_id;
-    uint8_t  param_id;
     uint8_t  quantity_time; // Số lần tưới trong ngày
     uint32_t time[MAX_TIME_STAMP]; // Giờ bắt đầu (HH:MM)
 } SetPumpSchedule;
@@ -184,7 +188,6 @@ typedef struct {
 typedef struct {
     uint32_t token; // 4 bytes (Cần htonl/ntohl)
     uint8_t  dev_id;
-    uint8_t  param_id;
     uint8_t  quantity_time; // Số lần bật&tắt trong ngày
     uint32_t time[MAX_TIME_STAMP]; // Giờ bật/tắt (HH:MM)
 } SetLightSchedule;
@@ -218,7 +221,21 @@ typedef struct {
     uint8_t btn; // bật/tắt
 } SetDirectFert;
 
+//18.Settings
+typedef struct {
+    uint32_t token;
+    uint8_t dev_id;
+} SettingsRequest;
 
+typedef struct {
+    uint8_t fert_C, fert_V; // nồng độ C gam/lít, lượng nước V lít
+    uint8_t power; // 0 -> 100% công suất đèn
+    // Inteval Time
+    uint8_t T; 
+    // Thresholds
+    uint8_t Hmin, Hmax;
+    uint8_t Nmin, Pmin, Kmin;
+} SettingsResponse;
 // Cấu trúc packet tổng quát sau khi giải gói tin
 typedef struct {
     uint8_t type;
@@ -244,6 +261,8 @@ typedef struct {
         SetDirectPump set_direct_pump;
         SetDirectLight set_direct_light;
         SetDirectFert set_direct_fert;
+        SettingsRequest setting_request;
+        SettingsResponse setting_response;
     } data;
 } ParsedPacket;
 
@@ -304,71 +323,133 @@ int serialize_alert(const Alert* alert, uint8_t* out_buffer);
 int serialize_cmd_response(uint8_t status_code, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Add Garden (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer (luôn là 7)
+ * @brief Serialize Add Garden packet (Client -> Server)
+ * @param token User authentication token
+ * @param garden_id ID of the garden to add
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer (always 7)
  */
 int serialize_garden_add(uint32_t token, uint8_t garden_id, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Delete Garden (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer (luôn là 7)
+ * @brief Serialize Delete Garden packet (Client -> Server)
+ * @param token User authentication token
+ * @param garden_id ID of the garden to delete
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer (always 7)
  */
 int serialize_garden_del(uint32_t token, uint8_t garden_id, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Add Device (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer (luôn là 8)
+ * @brief Serialize Add Device packet (Client -> Server)
+ * @param token User authentication token
+ * @param garden_id Garden to which the device will be added
+ * @param dev_id Device ID to add
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer (always 8)
  */
 int serialize_device_add(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Delete Device (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer (luôn là 8)
+ * @brief Serialize Delete Device packet (Client -> Server)
+ * @param token User authentication token
+ * @param garden_id Garden from which the device will be removed
+ * @param dev_id Device ID to delete
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer (always 8)
  */
 int serialize_device_del(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Set Parameter (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer 
+ * @brief Serialize Set Parameter packet (Client -> Server)
+ * @param token User authentication token
+ * @param garden_id Garden ID to configure
+ * @param dev_id Device ID to configure
+ * @param param_id Parameter ID to set
+ * @param param_value Value to assign to the parameter
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer
  */
-int serialize_set_parameter(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t param_value, uint8_t* out_buffer);
+int serialize_set_parameter(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint8_t param_id, uint8_t param_value, uint8_t *out_buffer);
 
 /**
- * @brief Gói tin Set Pump Schedule (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer 
+ * @brief Serialize Set Pump Schedule packet (Client -> Server)
+ * @param token User authentication token
+ * @param dev_id Device ID to configure
+ * @param quantity_time Number of schedule entries
+ * @param time_array Array of timestamps for the schedule
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer
  */
-int serialize_set_pump_schedule(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t quantity_time, const uint32_t* time_array, uint8_t* out_buffer);
+int serialize_set_pump_schedule(uint32_t token, uint8_t dev_id,  uint8_t quantity_time, const uint32_t* time_array, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Set Light Schedule (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer 
+ * @brief Serialize Set Light Schedule packet (Client -> Server)
+ * @param token User authentication token
+ * @param dev_id Device ID to configure
+ * @param quantity_time Number of schedule entries
+ * @param time_array Array of timestamps for the schedule
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer
  */
-int serialize_set_light_schedule(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t quantity_time, const uint32_t* time_array, uint8_t* out_buffer);
+int serialize_set_light_schedule(uint32_t token, uint8_t dev_id, uint8_t quantity_time, const uint32_t* time_array, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Change Password (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer 
+ * @brief Serialize Change Password packet (Client -> Server)
+ * @param token User authentication token
+ * @param appID App identifier
+ * @param old_password_len Length of old password
+ * @param old_password Old password string
+ * @param new_password New password string
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer
  */
 int serialize_change_password(uint32_t token, const char* appID, uint8_t old_password_len, const char* old_password, const char* new_password, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Set Direct Pump Command (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer 
+ * @brief Serialize Direct Pump Command packet (Client -> Server)
+ * @param token User authentication token
+ * @param dev_id Device ID to control
+ * @param btn Button or command value
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer
  */
 int serialize_set_direct_pump(uint32_t token, uint8_t dev_id, uint8_t btn, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Set Direct Light Command (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer 
+ * @brief Serialize Direct Light Command packet (Client -> Server)
+ * @param token User authentication token
+ * @param dev_id Device ID to control
+ * @param btn Button or command value
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer
  */
 int serialize_set_direct_light(uint32_t token, uint8_t dev_id, uint8_t btn, uint8_t* out_buffer);
 
 /**
- * @brief Gói tin Set Direct Fert Command (Client -> Server)
- * @return Tổng số byte đã ghi vào buffer 
+ * @brief Serialize Direct Fertilizer Command packet (Client -> Server)
+ * @param token User authentication token
+ * @param dev_id Device ID to control
+ * @param btn Button or command value
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer
  */
 int serialize_set_direct_fert(uint32_t token, uint8_t dev_id, uint8_t btn, uint8_t* out_buffer);
 
+/**
+ * @brief Serialize Settings Request packet (Client -> Server)
+ * @param token User authentication token
+ * @param dev_id Device ID to request settings from
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer (always 7)
+ */
+int serialize_settings_request(uint32_t token, uint8_t dev_id, uint8_t* out_buffer);
+
+/**
+ * @param out_buffer Output buffer to write packet data
+ * @return Number of bytes written to buffer (always 11)
+ */
+int serialize_settings_response(const SettingsResponse* settings, uint8_t* out_buffer);
 // --- Khai báo hàm GIẢI GÓI TIN (Deserialization) ---
 
 /**

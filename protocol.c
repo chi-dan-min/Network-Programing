@@ -216,70 +216,69 @@ int serialize_device_del(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint
     return 8;
 }
 
-int serialize_set_parameter(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t param_value, uint8_t *out_buffer)
+int serialize_set_parameter(uint32_t token, uint8_t garden_id, uint8_t dev_id, uint8_t param_id, uint8_t param_value, uint8_t *out_buffer)
 {
     if (!out_buffer)
         return -1;
 
     out_buffer[0] = MSG_TYPE_SET_PARAMETER;
-    out_buffer[1] = 4 + 3; // token(4) + dev_id(1) + param_id(1) + param_value(1)
+    out_buffer[1] = 4 + 4; // token(4) + garden_id dev_id(1) + param_id(1) + param_value(1)
 
     uint32_t t = htonl(token);
     memcpy(&out_buffer[2], &t, 4);
 
-    out_buffer[6] = dev_id;
-    out_buffer[7] = param_id;
-    out_buffer[8] = param_value;
+    out_buffer[6] = garden_id;
+    out_buffer[7] = dev_id;
+    out_buffer[8] = param_id;
+    out_buffer[9] = param_value;
 
-    return 9;
+    return 10;
 }
 
-int serialize_set_pump_schedule(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t quantity_time, const uint32_t *time_array, uint8_t *out_buffer)
+int serialize_set_pump_schedule(uint32_t token, uint8_t dev_id, uint8_t quantity_time, const uint32_t *time_array, uint8_t *out_buffer)
 {
     if (!out_buffer || !time_array)
         return -1;
 
     out_buffer[0] = MSG_TYPE_SET_PUMP_SCHEDULE;
-    out_buffer[1] = 4 + 3 + (quantity_time * 4); // token(4) + dev_id(1) + param_id(1) + quantity_time(1) + time_array
+    out_buffer[1] = 4 + 2 + (quantity_time * 4); // token(4) + dev_id(1)) + quantity_time(1) + time_array
 
     uint32_t t = htonl(token);
     memcpy(&out_buffer[2], &t, 4);
 
     out_buffer[6] = dev_id;
-    out_buffer[7] = param_id;
-    out_buffer[8] = quantity_time;
+    out_buffer[7] = quantity_time;
 
     for (int i = 0; i < quantity_time; i++)
     {
         uint32_t net_time = htonl(time_array[i]);
-        memcpy(&out_buffer[9 + i * 4], &net_time, 4);
+        memcpy(&out_buffer[8 + i * 4], &net_time, 4);
     }
 
-    return 9 + (quantity_time * 4);
+    return 8 + (quantity_time * 4);
 }
 
-int serialize_set_light_schedule(uint32_t token, uint8_t dev_id, uint8_t param_id, uint8_t quantity_time, const uint32_t *time_array, uint8_t *out_buffer)
+int serialize_set_light_schedule(uint32_t token, uint8_t dev_id,  uint8_t quantity_time, const uint32_t *time_array, uint8_t *out_buffer)
 {
     if (!out_buffer || !time_array)
         return -1;
 
     out_buffer[0] = MSG_TYPE_SET_LIGHT_SCHEDULE;
-    out_buffer[1] = 4 + 3 + (quantity_time * 4); // token(4) + dev_id(1) + param_id(1) + quantity_time(1) + time_array
+    out_buffer[1] = 4 + 2 + (quantity_time * 4); // token(4) + dev_id(1) + quantity_time(1) + time_array
 
     uint32_t t = htonl(token);
     memcpy(&out_buffer[2], &t, 4);
 
     out_buffer[6] = dev_id;
-    out_buffer[7] = param_id;
-    out_buffer[8] = quantity_time;
+    out_buffer[7] = quantity_time;
 
     for (int i = 0; i < quantity_time; i++)
     {
         uint32_t net_time = htonl(time_array[i]);
-        memcpy(&out_buffer[9 + i * 4], &net_time, 4);
+        memcpy(&out_buffer[8 + i * 4], &net_time, 4);
     }
 
-    return 9 + (quantity_time * 4);
+    return 8 + (quantity_time * 4);
 }
 
 int serialize_change_password(uint32_t token, const char *appID, uint8_t old_password_len, const char *old_password, const char *new_password, uint8_t *out_buffer)
@@ -349,6 +348,41 @@ int serialize_set_direct_fert(uint32_t token, uint8_t dev_id, uint8_t btn, uint8
     return 8;
 }
 
+int serialize_settings_request(uint32_t token, uint8_t dev_id, uint8_t* out_buffer){
+    out_buffer[0] = MSG_TYPE_SETTINGS_CLIENT; // 70
+    out_buffer[1] = 5; // Payload Length: Token(4) + DevID(1)
+
+    // Token (Host to Network byte order)
+    uint32_t net_token = htonl(token);
+    memcpy(out_buffer + 2, &net_token, 4);
+
+    // Device ID
+    out_buffer[6] = dev_id;
+
+    return 7; // Tổng độ dài packet (2 header + 5 payload)
+}
+
+int serialize_settings_response(const SettingsResponse* settings, uint8_t* out_buffer) {
+    // 1. Header
+    out_buffer[0] = MSG_TYPE_SETTINGS_SERVER; // Type: 71
+    out_buffer[1] = 9;                         // Length payload (9 bytes)
+
+    // 2. Payload
+    out_buffer[2] = settings->fert_C; // Nồng độ phân bón
+    out_buffer[3] = settings->fert_V; // Lượng nước
+    out_buffer[4] = settings->power;  // Công suất
+    out_buffer[5] = settings->T;      // Interval Time
+    
+    // Thresholds
+    out_buffer[6] = settings->Hmin;
+    out_buffer[7] = settings->Hmax;
+    out_buffer[8] = settings->Nmin;
+    out_buffer[9] = settings->Pmin;
+    out_buffer[10] = settings->Kmin;
+
+    // Trả về tổng kích thước packet (2 header + 9 payload)
+    return 11; 
+}
 // DESERIALIZATION
 int deserialize_packet(const uint8_t *in_buffer, int buffer_len, ParsedPacket *out_packet)
 {
@@ -578,10 +612,17 @@ int deserialize_packet(const uint8_t *in_buffer, int buffer_len, ParsedPacket *o
     //------------------------------
     case MSG_TYPE_ALERT:
     {
-        if (payload_len < 2)
-            return -1;
-        out_packet->data.alert.dev_id = payload[0];
-        out_packet->data.alert.alert_code = payload[1];
+        if (payload_len < 7) return -1;
+
+        Alert *a = &out_packet->data.alert;
+
+        uint32_t ts_net;
+        memcpy(&ts_net, payload, 4); 
+        a->timestamp = ntohl(ts_net);
+        a->alert_code = payload[4];
+        a->dev_id = payload[5];
+        a->alert_value = payload[6];
+
         break;
     }
 
@@ -604,9 +645,10 @@ int deserialize_packet(const uint8_t *in_buffer, int buffer_len, ParsedPacket *o
         if (payload_len < 6)
             return -1;
         out_packet->data.set_parameter.token = ntohl(*(uint32_t *)payload);
-        out_packet->data.set_parameter.dev_id = payload[4];
-        out_packet->data.set_parameter.param_id = payload[5];
-        out_packet->data.set_parameter.param_value = payload[6];
+        out_packet->data.set_parameter.garden_id = payload[4];
+        out_packet->data.set_parameter.dev_id = payload[5];
+        out_packet->data.set_parameter.param_id = payload[6];
+        out_packet->data.set_parameter.param_value = payload[7];
         break;
     }
 
@@ -615,17 +657,16 @@ int deserialize_packet(const uint8_t *in_buffer, int buffer_len, ParsedPacket *o
     //------------------------------
     case MSG_TYPE_SET_PUMP_SCHEDULE:
     {
-        if (payload_len < 7)
+        if (payload_len < 6)
             return -1;
         out_packet->data.set_pump_schedule.token = ntohl(*(uint32_t *)payload);
         out_packet->data.set_pump_schedule.dev_id = payload[4];
-        out_packet->data.set_pump_schedule.param_id = payload[5];
-        out_packet->data.set_pump_schedule.quantity_time = payload[6];
-        if (payload_len != 7 + out_packet->data.set_pump_schedule.quantity_time * 4)
+        out_packet->data.set_pump_schedule.quantity_time = payload[5];
+        if (payload_len != 6 + out_packet->data.set_pump_schedule.quantity_time * 4)
             return -1;
         for (int i = 0; i < out_packet->data.set_pump_schedule.quantity_time; i++)
         {
-            out_packet->data.set_pump_schedule.time[i] = ntohl(*(uint32_t *)(payload + 7 + i * 4));
+            out_packet->data.set_pump_schedule.time[i] = ntohl(*(uint32_t *)(payload + 6 + i * 4));
         }
         break;
     }
@@ -635,17 +676,16 @@ int deserialize_packet(const uint8_t *in_buffer, int buffer_len, ParsedPacket *o
     //------------------------------
     case MSG_TYPE_SET_LIGHT_SCHEDULE:
     {
-        if (payload_len < 7)
+        if (payload_len < 6)
             return -1;
         out_packet->data.set_light_schedule.token = ntohl(*(uint32_t *)payload);
         out_packet->data.set_light_schedule.dev_id = payload[4];
-        out_packet->data.set_light_schedule.param_id = payload[5];
-        out_packet->data.set_light_schedule.quantity_time = payload[6];
-        if (payload_len != 7 + out_packet->data.set_light_schedule.quantity_time * 4)
+        out_packet->data.set_light_schedule.quantity_time = payload[5];
+        if (payload_len != 6 + out_packet->data.set_light_schedule.quantity_time * 4)
             return -1;
         for (int i = 0; i < out_packet->data.set_light_schedule.quantity_time; i++)
         {
-            out_packet->data.set_light_schedule.time[i] = ntohl(*(uint32_t *)(payload + 7 + i * 4));
+            out_packet->data.set_light_schedule.time[i] = ntohl(*(uint32_t *)(payload + 6 + i * 4));
         }
         break;
     }
@@ -710,6 +750,37 @@ int deserialize_packet(const uint8_t *in_buffer, int buffer_len, ParsedPacket *o
         break;
     }
 
+    //------------------------------
+    // 70 - Settings request
+    //------------------------------
+    case MSG_TYPE_SETTINGS_CLIENT:
+    {
+        if (payload_len != 5) return -1; // Yêu cầu đúng 5 byte payload
+        
+        uint32_t net_token;
+        memcpy(&net_token, payload, 4);
+        out_packet->data.setting_request.token = ntohl(net_token);
+        out_packet->data.setting_request.dev_id = payload[4];
+        break;
+    }
+
+    //------------------------------
+    // 71 - Settings response
+    //------------------------------
+    case MSG_TYPE_SETTINGS_SERVER: 
+    {
+        if (payload_len != 9) return -1; // Yêu cầu đúng 10 byte payload 
+        out_packet->data.setting_response.fert_C = payload[0];
+        out_packet->data.setting_response.fert_V = payload[1];
+        out_packet->data.setting_response.power  = payload[2];
+        out_packet->data.setting_response.T      = payload[3];
+        out_packet->data.setting_response.Hmin   = payload[4];
+        out_packet->data.setting_response.Hmax   = payload[5];
+        out_packet->data.setting_response.Nmin   = payload[6];
+        out_packet->data.setting_response.Pmin   = payload[7];
+        out_packet->data.setting_response.Kmin   = payload[8];
+        break;
+    }
     //------------------------------
     // Unknown type
     //------------------------------
