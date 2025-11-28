@@ -1,0 +1,23 @@
+# Build folders
+/build/
+/CMakeFiles/
+/CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Executables
+/server
+/client
+
+# VSCode CMake files (nếu dùng VSCode)
+.vscode/
+
+
+# Object files and libraries
+*.o
+*.a
+*.so
+*.dylib
+
+# Backup files
+*~

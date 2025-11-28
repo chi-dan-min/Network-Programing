@@ -1,32 +1,34 @@
 #ifndef PROTOCOL_H
 #define PROTOCOL_H
-
+#ifdef __cplusplus
+extern "C" {
+#endif
 #include <stdint.h> 
 #include <string.h> 
 #include <stdlib.h> 
 #include <arpa/inet.h>
 
 // MESSAGE TYPES
-#define MSG_TYPE_CONNECT_CLIENT             10          // 0x0A
+#define MSG_TYPE_CONNECT_CLIENT            10          // 0x0A
 #define MSG_TYPE_CONNECT_SERVER             11          // 0x0B
+#define MSG_TYPE_CHANGE_PASSWORD            12          // 0x0C
 #define MSG_TYPE_SCAN_CLIENT                20          // 0x14
 #define MSG_TYPE_SCAN_SERVER                21          // 0x15
 #define MSG_TYPE_INFO_CLIENT                30          // 0x1E
 #define MSG_TYPE_INFO_SERVER                31          // 0x1F
-#define MSG_TYPE_DATA                       100         // 0x64
-#define MSG_TYPE_ALERT                      200         // 0xC8
-#define MSG_TYPE_CMD_RESPONSE               254         // 0xFE
+#define MSG_TYPE_SET_PARAMETER              40          // 0x28
+#define MSG_TYPE_SET_PUMP_SCHEDULE          50          // 0x32
+#define MSG_TYPE_SET_LIGHT_SCHEDULE         51          // 0x33
+#define MSG_TYPE_SET_DIRECT_PUMP            60          // 0x3C
+#define MSG_TYPE_SET_DIRECT_LIGHT           61          // 0x3D
+#define MSG_TYPE_SET_DIRECT_FERT            62          // 0x3E
 #define MSG_TYPE_GARDEN_ADD                 80          // 0x50 
 #define MSG_TYPE_GARDEN_DEL                 81          // 0x51 
 #define MSG_TYPE_DEVICE_ADD                 90          // 0x5A 
 #define MSG_TYPE_DEVICE_DEL                 91          // 0x5B 
-#define MSG_TYPE_SET_PARAMETER              40          // 0x28
-#define MSG_TYPE_SET_PUMP_SCHEDULE          50          // 0x32
-#define MSG_TYPE_SET_LIGHT_SCHEDULE         51          // 0x33
-#define MSG_TYPE_CHANGE_PASSWORD            12          // 0x0C
-#define MSG_TYPE_SET_DIRECT_PUMP            60          // 0x3C
-#define MSG_TYPE_SET_DIRECT_LIGHT           61          // 0x3D
-#define MSG_TYPE_SET_DIRECT_FERT            62          // 0x3E
+#define MSG_TYPE_DATA                       100         // 0x64
+#define MSG_TYPE_ALERT                      200         // 0xC8
+#define MSG_TYPE_CMD_RESPONSE               254         // 0xFE
 
 //CMD_RESPONSE      
 #define STATUS_OK                           0x00         // Thành công
@@ -58,7 +60,18 @@
 #define APPID_FIXED_LENGTH                  8
 #define MAX_TIME_STAMP                      50
 
-// --- Cấu trúc cho dữ liệu đã giải gói tin ---
+
+
+// DEVICE PARAMETER IDs
+#define PARAM_ID_T_DELAY   0  // T: Thời gian
+#define PARAM_ID_H_MIN     1
+#define PARAM_ID_H_MAX     2
+#define PARAM_ID_N_MIN     3  // Ngưỡng N tối thiểu
+#define PARAM_ID_P_MIN     4  // Ngưỡng P tối thiểu
+#define PARAM_ID_K_MIN     5  // Ngưỡng K tối thiểu
+#define PARAM_ID_POWER     6
+
+// --- Cấu trúc cho dữ liệu đã giải gói tin 
 
 // 1. Connect
 typedef struct {
@@ -135,7 +148,6 @@ typedef struct {
     uint32_t token; // 4 bytes (Cần htonl/ntohl)
     uint8_t  garden_id;
 } GardenDel; 
-
 
 // 9. Add Device 
 typedef struct {
@@ -367,5 +379,7 @@ int serialize_set_direct_fert(uint32_t token, uint8_t dev_id, uint8_t btn, uint8
  * @return 0 nếu thành công, -1 nếu có lỗi (packet không hoàn chỉnh, sai độ dài,...)
  */
 int deserialize_packet(const uint8_t* in_buffer, int buffer_len, ParsedPacket* out_packet);
-
+#ifdef __cplusplus
+}
+#endif
 #endif // PROTOCOL_H

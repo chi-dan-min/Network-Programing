@@ -1,23 +1,4 @@
-#include <iostream>
-#include <fstream>
-#include <cstdlib>
-#include <cstdint>
-#include <cstring>
-#include <vector>
-#include <map>
-#include <thread>
-#include <mutex>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <iomanip> 
-#include <algorithm>
-#include "protocol.h"
-
-#define SERV_PORT 3000
-
-using namespace std;
+#include "myClient.h"
 
 vector<string> data_logs;
 vector<string> alert_logs;
@@ -25,12 +6,13 @@ vector<uint8_t> current_gardens;
 vector<uint8_t> available_devices;
 vector<uint8_t> current_devices;
 
-
-//debug function
-void print_buffer(const char* title, const uint8_t* buffer, int len) {
+// debug function
+void print_buffer(const char *title, const uint8_t *buffer, int len)
+{
     cout << title << " (" << len << " bytes):\n";
-    for (int i = 0; i < len; ++i) {
-        cout << hex << uppercase << setw(2) << setfill('0') 
+    for (int i = 0; i < len; ++i)
+    {
+        cout << hex << uppercase << setw(2) << setfill('0')
              << static_cast<int>(buffer[i]) << " ";
     }
     cout << "\n\n";
@@ -39,60 +21,63 @@ void print_buffer(const char* title, const uint8_t* buffer, int len) {
     cout << dec;
 }
 
-void print_status_message(uint8_t status_code) {
-    switch (status_code) {
-        case STATUS_OK:
-            cout << "[STATUS_OK] Success\n";
-            break;
+void print_status_message(uint8_t status_code)
+{
+    switch (status_code)
+    {
+    case STATUS_OK:
+        cout << "[STATUS_OK] Success\n";
+        break;
 
-        case STATUS_ERR_FAILED:
-            cout << "[STATUS_ERR_FAILED] General error, unspecified failure\n";
-            break;
+    case STATUS_ERR_FAILED:
+        cout << "[STATUS_ERR_FAILED] General error, unspecified failure\n";
+        break;
 
-        case STATUS_ERR_INVALID_TOKEN:
-            cout << "[STATUS_ERR_INVALID_TOKEN] Invalid or expired token\n";
-            break;
+    case STATUS_ERR_INVALID_TOKEN:
+        cout << "[STATUS_ERR_INVALID_TOKEN] Invalid or expired token\n";
+        break;
 
-        case STATUS_ERR_INVALID_DEVICE:
-            cout << "[STATUS_ERR_INVALID_DEVICE] Device ID not found or offline\n";
-            break;
+    case STATUS_ERR_INVALID_DEVICE:
+        cout << "[STATUS_ERR_INVALID_DEVICE] Device ID not found or offline\n";
+        break;
 
-        case STATUS_ERR_INVALID_PARAM:
-            cout << "[STATUS_ERR_INVALID_PARAM] Invalid parameter ID or value\n";
-            break;
+    case STATUS_ERR_INVALID_PARAM:
+        cout << "[STATUS_ERR_INVALID_PARAM] Invalid parameter ID or value\n";
+        break;
 
-        case STATUS_ERR_INVALID_SLOT:
-            cout << "[STATUS_ERR_INVALID_SLOT] Invalid schedule slot ID\n";
-            break;
+    case STATUS_ERR_INVALID_SLOT:
+        cout << "[STATUS_ERR_INVALID_SLOT] Invalid schedule slot ID\n";
+        break;
 
-        case STATUS_ERR_WRONG_PASSWORD:
-            cout << "[STATUS_ERR_WRONG_PASSWORD] Incorrect password\n";
-            break;
+    case STATUS_ERR_WRONG_PASSWORD:
+        cout << "[STATUS_ERR_WRONG_PASSWORD] Incorrect password\n";
+        break;
 
-        case STATUS_ERR_MALFORMED:
-            cout << "[STATUS_ERR_MALFORMED] Malformed packet sent by client\n";
-            break;
+    case STATUS_ERR_MALFORMED:
+        cout << "[STATUS_ERR_MALFORMED] Malformed packet sent by client\n";
+        break;
 
-        case STATUS_ERR_INVALID_GARDEN:
-            cout << "[STATUS_ERR_INVALID_GARDEN] Garden ID does not exist or duplicate\n";
-            break;
+    case STATUS_ERR_INVALID_GARDEN:
+        cout << "[STATUS_ERR_INVALID_GARDEN] Garden ID does not exist or duplicate\n";
+        break;
 
-        case STATUS_ERR_UNKNOW:
-            cout << "[STATUS_ERR_UNKNOWN] Unknown packet type\n";
-            break;
+    case STATUS_ERR_UNKNOW:
+        cout << "[STATUS_ERR_UNKNOWN] Unknown packet type\n";
+        break;
 
-        case STATUS_ERR_GARDEN_NOT_EMPTY:
-            cout << "[STATUS_ERR_GARDEN_NOT_EMPTY] Cannot delete garden\n";
-            break;
+    case STATUS_ERR_GARDEN_NOT_EMPTY:
+        cout << "[STATUS_ERR_GARDEN_NOT_EMPTY] Cannot delete garden\n";
+        break;
 
-        default:
-            cout << "[UNKNOWN_STATUS] Unrecognized status code: "
-                 << static_cast<int>(status_code) << "\n";
-            break;
+    default:
+        cout << "[UNKNOWN_STATUS] Unrecognized status code: "
+             << static_cast<int>(status_code) << "\n";
+        break;
     }
 }
 
-bool client_login(int sockfd, uint32_t& token) {
+bool client_login(int sockfd, uint32_t &token)
+{
     string myAppID, myPassword;
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
@@ -101,7 +86,8 @@ bool client_login(int sockfd, uint32_t& token) {
     memset(send_buffer, 0, sizeof(send_buffer));
     memset(recv_buffer, 0, sizeof(recv_buffer));
 
-    while (true) {
+    while (true)
+    {
         cout << "Enter your AppID: ";
         cin >> myAppID;
         cout << "Enter your password: ";
@@ -115,7 +101,8 @@ bool client_login(int sockfd, uint32_t& token) {
 
         // --- Nhận Connect Response ---
         packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
-        if (packet_len <= 0) {
+        if (packet_len <= 0)
+        {
             cerr << "Server disconnected.\n";
             return false;
         }
@@ -123,37 +110,43 @@ bool client_login(int sockfd, uint32_t& token) {
         print_buffer("Client receive: Connect Response", recv_buffer, packet_len);
 
         ParsedPacket packet;
-        if (deserialize_packet(recv_buffer, packet_len, &packet) != 0) {
+        if (deserialize_packet(recv_buffer, packet_len, &packet) != 0)
+        {
             cerr << "Failed to deserialize packet.\n";
             memset(recv_buffer, 0, sizeof(recv_buffer));
             continue;
         }
 
-        switch (packet.type) {
-            case MSG_TYPE_CONNECT_SERVER: {
-                token = packet.data.connect_res.token;
-                cout << "Login successful! Received Token: " << token << "\n\n";
-                return true;
-            }
+        switch (packet.type)
+        {
+        case MSG_TYPE_CONNECT_SERVER:
+        {
+            token = packet.data.connect_res.token;
+            cout << "Login successful! Received Token: " << token << "\n\n";
+            return true;
+        }
 
-            case MSG_TYPE_CMD_RESPONSE: {
-                cout << "Login failed. Server returned status: ";
-                print_status_message(packet.data.cmd_response.status_code);
-                cout << "\n";
-                break; // cho phép nhập lại
-            }
+        case MSG_TYPE_CMD_RESPONSE:
+        {
+            cout << "Login failed. Server returned status: ";
+            print_status_message(packet.data.cmd_response.status_code);
+            cout << "\n";
+            break; // cho phép nhập lại
+        }
 
-            default: {
-                cout << "Unexpected packet type: " << (int)packet.type << endl;
-                break;
-            }
+        default:
+        {
+            cout << "Unexpected packet type: " << (int)packet.type << endl;
+            break;
+        }
         }
 
         memset(recv_buffer, 0, sizeof(recv_buffer));
     }
 }
 
-bool client_scan(int sockfd, uint32_t token) {
+bool client_scan(int sockfd, uint32_t token)
+{
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
     int packet_len;
@@ -164,14 +157,16 @@ bool client_scan(int sockfd, uint32_t token) {
     // --- Gửi Scan Request ---
     packet_len = serialize_scan_request(token, send_buffer);
     print_buffer("Client send: Scan Request", send_buffer, packet_len);
-    if (send(sockfd, send_buffer, packet_len, 0) <= 0) {
+    if (send(sockfd, send_buffer, packet_len, 0) <= 0)
+    {
         cerr << "Failed to send Scan Request.\n";
         return false;
     }
 
     // --- Nhận Scan Response ---
     packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
-    if (packet_len <= 0) {
+    if (packet_len <= 0)
+    {
         cerr << "Server disconnected.\n";
         return false;
     }
@@ -179,38 +174,45 @@ bool client_scan(int sockfd, uint32_t token) {
     print_buffer("Client receive: Scan Response", recv_buffer, packet_len);
 
     ParsedPacket packet;
-    if (deserialize_packet(recv_buffer, packet_len, &packet) != 0) {
+    if (deserialize_packet(recv_buffer, packet_len, &packet) != 0)
+    {
         cerr << "Failed to deserialize Scan Response.\n";
         return false;
     }
 
-    switch (packet.type) {
-        case MSG_TYPE_SCAN_SERVER: {
-            cout << "Scan successful. Devices found: "
-                 << (int)packet.data.scan_res.num_devices << "\n";
-            available_devices.clear();
-            for (int i = 0; i < packet.data.scan_res.num_devices; ++i) {
-                cout << "Device ID: " << static_cast<int>(packet.data.scan_res.device_ids[i]) << "\n";
-                available_devices.push_back(packet.data.scan_res.device_ids[i]);
-            }
-            cout << endl;
-            break;
+    switch (packet.type)
+    {
+    case MSG_TYPE_SCAN_SERVER:
+    {
+        cout << "Scan successful. Devices found: "
+             << (int)packet.data.scan_res.num_devices << "\n";
+        available_devices.clear();
+        for (int i = 0; i < packet.data.scan_res.num_devices; ++i)
+        {
+            cout << "Device ID: " << static_cast<int>(packet.data.scan_res.device_ids[i]) << "\n";
+            available_devices.push_back(packet.data.scan_res.device_ids[i]);
         }
-        case MSG_TYPE_CMD_RESPONSE: {
-            cout << "Scan failed. Server returned status: ";
-            print_status_message(packet.data.cmd_response.status_code);
-            break;
-        }
-        default: {
-            cout << "Unexpected packet type: " << (int)packet.type << endl;
-            break;
-        }
+        cout << endl;
+        break;
+    }
+    case MSG_TYPE_CMD_RESPONSE:
+    {
+        cout << "Scan failed. Server returned status: ";
+        print_status_message(packet.data.cmd_response.status_code);
+        break;
+    }
+    default:
+    {
+        cout << "Unexpected packet type: " << (int)packet.type << endl;
+        break;
+    }
     }
 
     return true;
 }
 
-bool client_info(int sockfd, uint32_t token) {
+bool client_info(int sockfd, uint32_t token)
+{
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
     int packet_len;
@@ -222,14 +224,16 @@ bool client_info(int sockfd, uint32_t token) {
     packet_len = serialize_info_request(token, send_buffer);
     print_buffer("Client send: Info Request", send_buffer, packet_len);
 
-    if (send(sockfd, send_buffer, packet_len, 0) <= 0) {
+    if (send(sockfd, send_buffer, packet_len, 0) <= 0)
+    {
         cerr << "Failed to send Info Request.\n";
         return false;
     }
 
     // --- Nhận Info Response ---
     packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
-    if (packet_len <= 0) {
+    if (packet_len <= 0)
+    {
         cerr << "Server disconnected.\n";
         return false;
     }
@@ -237,67 +241,78 @@ bool client_info(int sockfd, uint32_t token) {
     print_buffer("Client receive: Info Response", recv_buffer, packet_len);
 
     ParsedPacket packet;
-    if (deserialize_packet(recv_buffer, packet_len, &packet) != 0) {
+    if (deserialize_packet(recv_buffer, packet_len, &packet) != 0)
+    {
         cerr << "Failed to deserialize Info Response.\n";
         return false;
     }
 
-    switch (packet.type) {
-        case MSG_TYPE_INFO_SERVER: {
-            InfoResponse& info = packet.data.info_res;
+    switch (packet.type)
+    {
+    case MSG_TYPE_INFO_SERVER:
+    {
+        InfoResponse &info = packet.data.info_res;
 
-            cout << "INFO RESPONSE: Found " << (int)info.num_gardens << " garden(s)\n";
-            current_gardens.clear();
-            for (int i = 0; i < info.num_gardens; ++i) {
-                const GardenInfo& g = info.gardens[i];
-                current_gardens.push_back(info.gardens[i].garden_id);
-                cout << "\nGarden ID: " << (int)g.garden_id
-                     << " | Devices: " << (int)g.num_devices << "\n";
+        cout << "INFO RESPONSE: Found " << (int)info.num_gardens << " garden(s)\n";
+        current_gardens.clear();
+        for (int i = 0; i < info.num_gardens; ++i)
+        {
+            const GardenInfo &g = info.gardens[i];
+            current_gardens.push_back(info.gardens[i].garden_id);
+            cout << "\nGarden ID: " << (int)g.garden_id
+                 << " | Devices: " << (int)g.num_devices << "\n";
 
-                for (int d = 0; d < g.num_devices; ++d) {
-                    cout << "  - Device ID: "
-                         << (int)g.devices[d].device_id << "\n";
-                }
+            for (int d = 0; d < g.num_devices; ++d)
+            {
+                cout << "  - Device ID: "
+                     << (int)g.devices[d].device_id << "\n";
             }
-
-            cout << endl;
-            break;
         }
 
-        case MSG_TYPE_CMD_RESPONSE: {
-            cout << "Info request failed. Server returned status: ";
-            print_status_message(packet.data.cmd_response.status_code);
-            break;
-        }
+        cout << endl;
+        break;
+    }
 
-        default:
-            cout << "Unexpected packet type: " << (int)packet.type << endl;
-            break;
+    case MSG_TYPE_CMD_RESPONSE:
+    {
+        cout << "Info request failed. Server returned status: ";
+        print_status_message(packet.data.cmd_response.status_code);
+        break;
+    }
+
+    default:
+        cout << "Unexpected packet type: " << (int)packet.type << endl;
+        break;
     }
 
     return true;
 }
 
-bool client_add_garden(int sockfd, uint32_t token) {
+bool client_add_garden(int sockfd, uint32_t token)
+{
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
     int packet_len;
 
     memset(send_buffer, 0, sizeof(send_buffer));
     memset(recv_buffer, 0, sizeof(recv_buffer));
-    if (current_gardens.empty()) {
+    if (current_gardens.empty())
+    {
         cout << "No Gardens available.\n";
     }
-    else{
+    else
+    {
         cout << "Current Gardens: ";
-        for (auto gid : current_gardens) cout << (int)gid << " ";
+        for (auto gid : current_gardens)
+            cout << (int)gid << " ";
         cout << "\n";
     }
 
     uint32_t garden_id;
     cout << "Enter new Garden ID(or '0' to cancel) : ";
     cin >> garden_id;
-    if(garden_id == 0){
+    if (garden_id == 0)
+    {
         cout << "Cancelled adding Garden.\n";
         return false;
     }
@@ -309,22 +324,29 @@ bool client_add_garden(int sockfd, uint32_t token) {
 
     // nhận response
     packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
-    if (packet_len <= 0) {
+    if (packet_len <= 0)
+    {
         cerr << "Server disconnected.\n";
         return false;
     }
     print_buffer("Client receive: Garden Add Response", recv_buffer, packet_len);
 
-    if (packet_len > 0) {
+    if (packet_len > 0)
+    {
         ParsedPacket packet;
-        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
-            if (packet.type == MSG_TYPE_CMD_RESPONSE) {
+        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0)
+        {
+            if (packet.type == MSG_TYPE_CMD_RESPONSE)
+            {
                 int status_code = packet.data.cmd_response.status_code;
                 print_status_message(status_code);
-                if(status_code == STATUS_OK){
+                if (status_code == STATUS_OK)
+                {
                     current_gardens.push_back(garden_id);
                 }
-            } else {
+            }
+            else
+            {
                 cout << "Unexpected response type.\n";
             }
         }
@@ -332,7 +354,8 @@ bool client_add_garden(int sockfd, uint32_t token) {
     return true;
 }
 
-bool client_add_device(int sockfd, uint32_t token) {
+bool client_add_device(int sockfd, uint32_t token)
+{
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
     int packet_len;
@@ -340,37 +363,43 @@ bool client_add_device(int sockfd, uint32_t token) {
     memset(send_buffer, 0, sizeof(send_buffer));
     memset(recv_buffer, 0, sizeof(recv_buffer));
 
-    if (current_gardens.empty()) {
+    if (current_gardens.empty())
+    {
         cout << "No Gardens available. Please add a Garden first.\n";
         return false;
     }
 
     cout << "Available Gardens: ";
-    for (auto gid : current_gardens) cout << (int)gid << " ";
+    for (auto gid : current_gardens)
+        cout << (int)gid << " ";
     cout << "\n";
 
     uint8_t garden_id, dev_id;
     int g, d;
     cout << "Enter Garden ID to add device to(or '0' to cancel) : ";
-    cin >> g; 
-    if(g == 0){
+    cin >> g;
+    if (g == 0)
+    {
         cout << "Cancelled adding Device.\n";
         return false;
     }
     garden_id = static_cast<uint8_t>(g);
 
-    if (available_devices.empty()) {
+    if (available_devices.empty())
+    {
         cout << "No Devices available.\n";
         return false;
     }
 
     cout << "Available Devices: ";
-    for (auto devid : available_devices) cout << (int)devid << " ";
+    for (auto devid : available_devices)
+        cout << (int)devid << " ";
     cout << "\n";
 
     cout << "Enter Device ID(or '0' to cancel) : ";
-    cin >> d; 
-    if(d == 0){
+    cin >> d;
+    if (d == 0)
+    {
         cout << "Cancelled adding Device.\n";
         return false;
     }
@@ -383,22 +412,29 @@ bool client_add_device(int sockfd, uint32_t token) {
 
     // Nhận response
     packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
-    if (packet_len <= 0) {
+    if (packet_len <= 0)
+    {
         cerr << "Server disconnected.\n";
         return false;
     }
     print_buffer("Client receive: Device Add Response", recv_buffer, packet_len);
-    if (packet_len > 0) {
+    if (packet_len > 0)
+    {
         ParsedPacket packet;
-        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
-            if (packet.type == MSG_TYPE_CMD_RESPONSE) {
+        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0)
+        {
+            if (packet.type == MSG_TYPE_CMD_RESPONSE)
+            {
                 int status_code = packet.data.cmd_response.status_code;
                 print_status_message(status_code);
-                if(status_code == STATUS_OK){
+                if (status_code == STATUS_OK)
+                {
                     current_gardens.push_back(garden_id);
                     find(available_devices.begin(), available_devices.end(), dev_id);
                 }
-            } else {
+            }
+            else
+            {
                 cout << "Unexpected response type.\n";
             }
         }
@@ -406,7 +442,8 @@ bool client_add_device(int sockfd, uint32_t token) {
     return true;
 }
 
-bool client_delete_garden(int sockfd, uint32_t token) {
+bool client_delete_garden(int sockfd, uint32_t token)
+{
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
     int packet_len;
@@ -414,20 +451,23 @@ bool client_delete_garden(int sockfd, uint32_t token) {
     memset(send_buffer, 0, sizeof(send_buffer));
     memset(recv_buffer, 0, sizeof(recv_buffer));
 
-    if (current_gardens.empty()) {
+    if (current_gardens.empty())
+    {
         cout << "No gardens available to delete.\n";
         return false;
     }
 
     cout << "Gardens currently registered: ";
-    for (auto gid : current_gardens) cout << (int)gid << " ";
+    for (auto gid : current_gardens)
+        cout << (int)gid << " ";
     cout << "\n";
 
     uint32_t garden_id_to_delete;
     cout << "Enter the Garden ID to delete (0 = Cancel): ";
     cin >> garden_id_to_delete;
 
-    if (garden_id_to_delete == 0) {
+    if (garden_id_to_delete == 0)
+    {
         cout << "Deletion cancelled.\n";
         return false;
     }
@@ -438,26 +478,34 @@ bool client_delete_garden(int sockfd, uint32_t token) {
     print_buffer("Client send: Garden Delete Request", send_buffer, packet_len);
 
     packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
-    if (packet_len <= 0) {
+    if (packet_len <= 0)
+    {
         cerr << "Server disconnected.\n";
         return false;
     }
     print_buffer("Client receive: Garden Delete Response", recv_buffer, packet_len);
 
-    if (packet_len > 0) {
+    if (packet_len > 0)
+    {
         ParsedPacket packet;
-        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
-            if (packet.type == MSG_TYPE_CMD_RESPONSE) {
+        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0)
+        {
+            if (packet.type == MSG_TYPE_CMD_RESPONSE)
+            {
                 int status_code = packet.data.cmd_response.status_code;
                 print_status_message(status_code);
-                if (status_code == STATUS_OK) {
+                if (status_code == STATUS_OK)
+                {
                     auto it = std::find(current_gardens.begin(), current_gardens.end(), garden_id_to_delete);
-                    if (it != current_gardens.end()) {
+                    if (it != current_gardens.end())
+                    {
                         current_gardens.erase(it);
                         cout << "Garden " << garden_id_to_delete << " removed from local list.\n";
                     }
                 }
-            } else {
+            }
+            else
+            {
                 cout << "Unexpected response type.\n";
             }
         }
@@ -465,7 +513,8 @@ bool client_delete_garden(int sockfd, uint32_t token) {
     return true;
 }
 
-bool client_delete_device(int sockfd, uint32_t token) {
+bool client_delete_device(int sockfd, uint32_t token)
+{
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
     int packet_len;
@@ -473,13 +522,15 @@ bool client_delete_device(int sockfd, uint32_t token) {
     memset(send_buffer, 0, sizeof(send_buffer));
     memset(recv_buffer, 0, sizeof(recv_buffer));
 
-    if (current_gardens.empty()) {
+    if (current_gardens.empty())
+    {
         cout << "No gardens registered yet. Cannot delete a device.\n";
         return false;
     }
 
     cout << "Gardens currently registered: ";
-    for (auto gid : current_gardens) cout << (int)gid << " ";
+    for (auto gid : current_gardens)
+        cout << (int)gid << " ";
     cout << "\n";
 
     uint8_t garden_id, dev_id;
@@ -487,7 +538,8 @@ bool client_delete_device(int sockfd, uint32_t token) {
 
     cout << "Enter the Garden ID where the device is located (0 = Cancel): ";
     cin >> g;
-    if (g == 0) {
+    if (g == 0)
+    {
         cout << "Deletion cancelled.\n";
         return false;
     }
@@ -495,7 +547,8 @@ bool client_delete_device(int sockfd, uint32_t token) {
 
     cout << "Enter the Device ID to delete (0 = Cancel): ";
     cin >> d;
-    if (d == 0) {
+    if (d == 0)
+    {
         cout << "Deletion cancelled.\n";
         return false;
     }
@@ -507,23 +560,30 @@ bool client_delete_device(int sockfd, uint32_t token) {
     print_buffer("Client send: Device Delete Request", send_buffer, packet_len);
 
     packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
-    if (packet_len <= 0) {
+    if (packet_len <= 0)
+    {
         cerr << "Server disconnected.\n";
         return false;
     }
     print_buffer("Client receive: Device Delete Response", recv_buffer, packet_len);
 
-    if (packet_len > 0) {
+    if (packet_len > 0)
+    {
         ParsedPacket packet;
-        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0) {
-            if (packet.type == MSG_TYPE_CMD_RESPONSE) {
+        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0)
+        {
+            if (packet.type == MSG_TYPE_CMD_RESPONSE)
+            {
                 int status_code = packet.data.cmd_response.status_code;
                 print_status_message(status_code);
-                if (status_code == STATUS_OK) {
+                if (status_code == STATUS_OK)
+                {
                     available_devices.push_back(dev_id);
                     cout << "Device " << (int)dev_id << " restored to available device list.\n";
                 }
-            } else {
+            }
+            else
+            {
                 cout << "Unexpected response type.\n";
             }
         }
@@ -531,7 +591,8 @@ bool client_delete_device(int sockfd, uint32_t token) {
     return true;
 }
 
-void show_menu() {
+void show_menu()
+{
     cout << "\n==== MENU ====\n";
     cout << "0. Show menu\n";
     cout << "1. Scan devices\n";
@@ -546,9 +607,10 @@ void show_menu() {
     cout.flush();
 }
 
-string format_timestamp(uint32_t ts) {
-    time_t raw = ts;  
-    struct tm* timeinfo = localtime(&raw);
+string format_timestamp(uint32_t ts)
+{
+    time_t raw = ts;
+    struct tm *timeinfo = localtime(&raw);
 
     char buffer[32];
     strftime(buffer, sizeof(buffer), "%d/%m/%Y %H:%M:%S", timeinfo);
@@ -556,17 +618,19 @@ string format_timestamp(uint32_t ts) {
     return string(buffer);
 }
 
-
-int main(int argc, char** argv) {
+int main(int argc, char **argv)
+{
     uint32_t token;
 
-    if (argc != 2) {
+    if (argc != 2)
+    {
         cerr << "Usage: " << argv[0] << " <server IP address>" << endl;
         return 1;
     }
 
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
+    if (sockfd < 0)
+    {
         perror("socket");
         return 2;
     }
@@ -574,12 +638,14 @@ int main(int argc, char** argv) {
     sockaddr_in servaddr{};
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(SERV_PORT);
-    if (inet_pton(AF_INET, argv[1], &servaddr.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, argv[1], &servaddr.sin_addr) <= 0)
+    {
         cerr << "Invalid address: " << argv[1] << endl;
         return 3;
     }
 
-    if (connect(sockfd, (sockaddr*)&servaddr, sizeof(servaddr)) < 0) {
+    if (connect(sockfd, (sockaddr *)&servaddr, sizeof(servaddr)) < 0)
+    {
         perror("connect");
         return 4;
     }
@@ -588,7 +654,8 @@ int main(int argc, char** argv) {
     // ==============================================
 
     cout << "Logging in...\n";
-    while (!client_login(sockfd, token)) {
+    while (!client_login(sockfd, token))
+    {
         cout << "Login failed. Retrying...\n";
         sleep(1);
     }
@@ -613,15 +680,17 @@ int main(int argc, char** argv) {
 
     show_menu();
 
-    while (true) {
+    while (true)
+    {
 
         FD_ZERO(&readfds);
-        FD_SET(STDIN_FILENO, &readfds);  // đọc input từ user
-        FD_SET(sockfd, &readfds);        // đọc dữ liệu server trả về
+        FD_SET(STDIN_FILENO, &readfds); // đọc input từ user
+        FD_SET(sockfd, &readfds);       // đọc dữ liệu server trả về
 
         int activity = select(maxfd + 1, &readfds, NULL, NULL, NULL);
 
-        if (activity < 0) {
+        if (activity < 0)
+        {
             perror("select");
             break;
         }
@@ -629,99 +698,109 @@ int main(int argc, char** argv) {
         // =============================
         // 4. Nhận INPUT từ người dùng
         // =============================
-        if (FD_ISSET(STDIN_FILENO, &readfds)) {
+        if (FD_ISSET(STDIN_FILENO, &readfds))
+        {
             int cmd;
             cin >> cmd;
 
-            switch (cmd) {
-                case 0:
-                    show_menu();
-                    break;
-                case 1:
-                    client_scan(sockfd, token);
-                    break;
-                case 2:
-                    client_info(sockfd, token);
-                    break;
-                case 3:{
-                    cout << "Bye!\n";
-                    return 0;
-                }
-                case 4:
-                    cout << "\n===== DATA LOGS =====\n";
-                    for (auto& s : data_logs) cout << s << "\n";
-                    cout << "===== END DATA LOGS =====\n";
-                    break;
-                case 5:
-                    cout << "\n===== ALERT LOGS =====\n";
-                    for (auto& s : alert_logs) cout << s << "\n";
-                    cout << "===== END ALERT LOGS =====\n";
-                    break;
-                case 6:
-                    if (!client_add_garden(sockfd, token))
-                        continue;
-                    break;
-                case 7:
-                    if (!client_delete_garden(sockfd, token))
-                        continue;
-                    break;
-                case 8:
-                    if (!client_add_device(sockfd, token))
-                        continue;
-                    break;
-                case 9:
-                    if (!client_delete_device(sockfd, token))
-                        continue;
-                    break;
-                default:
-                    cout << "Invalid command.\n";
-                    break;
+            switch (cmd)
+            {
+            case 0:
+                show_menu();
+                break;
+            case 1:
+                client_scan(sockfd, token);
+                break;
+            case 2:
+                client_info(sockfd, token);
+                break;
+            case 3:
+            {
+                cout << "Bye!\n";
+                return 0;
+            }
+            case 4:
+                cout << "\n===== DATA LOGS =====\n";
+                for (auto &s : data_logs)
+                    cout << s << "\n";
+                cout << "===== END DATA LOGS =====\n";
+                break;
+            case 5:
+                cout << "\n===== ALERT LOGS =====\n";
+                for (auto &s : alert_logs)
+                    cout << s << "\n";
+                cout << "===== END ALERT LOGS =====\n";
+                break;
+            case 6:
+                if (!client_add_garden(sockfd, token))
+                    continue;
+                break;
+            case 7:
+                if (!client_delete_garden(sockfd, token))
+                    continue;
+                break;
+            case 8:
+                if (!client_add_device(sockfd, token))
+                    continue;
+                break;
+            case 9:
+                if (!client_delete_device(sockfd, token))
+                    continue;
+                break;
+            default:
+                cout << "Invalid command.\n";
+                break;
             }
         }
 
         // =============================
         // 5. Nhận PACKET từ server
         // =============================
-        if (FD_ISSET(sockfd, &readfds)) {
+        if (FD_ISSET(sockfd, &readfds))
+        {
             uint8_t recv_buffer[MAX_BUFFER_SIZE];
             int packet_len;
             memset(recv_buffer, 0, sizeof(recv_buffer));
             packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
 
-            if (packet_len <= 0) {
+            if (packet_len <= 0)
+            {
                 cout << "Server disconnected.\n";
                 break;
             }
 
-            ParsedPacket packet; 
-            if (deserialize_packet(recv_buffer, packet_len, &packet) == 0){
-                switch (packet.type) {
-                    case MSG_TYPE_DATA: {
-                        IntervalData data = packet.data.interval_data;
-                        // Tạo text log
-                        std::ostringstream oss;
-                        oss << "[DATA] " << format_timestamp(data.timestamp)
-                            << ", deviceID=" << (int)data.dev_id
-                            << ", soil=" << (int)data.humidity
-                            << ", N=" << (int)data.n_level
-                            << ", P=" << (int)data.p_level
-                            << ", K=" << (int)data.k_level;
+            ParsedPacket packet;
+            if (deserialize_packet(recv_buffer, packet_len, &packet) == 0)
+            {
+                switch (packet.type)
+                {
+                case MSG_TYPE_DATA:
+                {
+                    IntervalData data = packet.data.interval_data;
+                    // Tạo text log
+                    std::ostringstream oss;
+                    oss << "[DATA] " << format_timestamp(data.timestamp)
+                        << ", deviceID=" << (int)data.dev_id
+                        << ", soil=" << (int)data.humidity
+                        << ", N=" << (int)data.n_level
+                        << ", P=" << (int)data.p_level
+                        << ", K=" << (int)data.k_level;
 
-                        string msg = oss.str();
+                    string msg = oss.str();
 
-                        data_logs.push_back(msg);
-                        break;
-                    }
+                    data_logs.push_back(msg);
+                    break;
+                }
 
-                    case MSG_TYPE_ALERT: {
-                        break;
-                    }
+                case MSG_TYPE_ALERT:
+                {
+                    break;
+                }
 
-                    default:
-                        break;
+                default:
+                    break;
+                }
             }
-            }
-            
         }
     }
     close(sockfd);
