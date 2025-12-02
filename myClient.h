@@ -12,6 +12,12 @@
 #include <netinet/in.h>
 #include "protocol.h"
 #include <thread>
+#include <vector>
+#include <termios.h>
+#include <cerrno>
+#include <unordered_map>
+#include <mutex>
+
 
 #define SERV_PORT 3000
 

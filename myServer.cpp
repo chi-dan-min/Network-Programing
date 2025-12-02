@@ -3,6 +3,7 @@
 // debug function
 void print_buffer(const char *title, const uint8_t *buffer, int len)
 {
+    lock_guard<mutex> lk(server_log_mutex);
     cout << title << " (" << len << " bytes):\n";
     for (int i = 0; i < len; ++i)
     {
@@ -18,6 +19,8 @@ void print_buffer(const char *title, const uint8_t *buffer, int len)
 // --- Data structures ---
 vector<App> apps;
 mutex apps_mutex;
+// Mutex to serialize server console output from multiple threads
+mutex server_log_mutex;
 
 map<string, string> app_credentials; // AppID -> password
 mutex credentials_mutex;
@@ -54,6 +57,7 @@ uint32_t make_timestamp_today(int hour, int minute)
 }
 void print_device_status(const DeviceSensor &dev, uint8_t deviceID, uint8_t gardenID)
 {
+    lock_guard<mutex> lk(server_log_mutex);
     cout << "[Device " << int(deviceID) << "] "
          << "Garden=" << int(gardenID)
          << " | H=" << int(dev.soil_moisture)
@@ -163,8 +167,11 @@ void send_interval_data(int client_fd, const IntervalData &data)
     uint8_t buffer[MAX_BUFFER_SIZE];
     memset(buffer, 0, sizeof(buffer));
 
-    cout << "Sending Interval DATA from device " << int(data.dev_id)
-         << " to sockfd " << client_fd << endl;
+    {
+        lock_guard<mutex> lk(server_log_mutex);
+        cout << "Sending Interval DATA from device " << int(data.dev_id)
+             << " to sockfd " << client_fd << endl;
+    }
 
     int len = serialize_interval_data(&data, buffer);
 
@@ -229,7 +236,10 @@ void tick_event()
                                 Alert alert{now, ALERT_WATERING_START, deviceID, 1};
                                 int len = serialize_alert(&alert, buffer);
                                 send(app_sockfd, buffer, len, 0);
-                                cout << "[AUTO] Pump ON (Schedule) for Dev " << (int)deviceID << endl;
+                                {
+                                    lock_guard<mutex> lk(server_log_mutex);
+                                    cout << "[AUTO] Pump ON (Schedule) for Dev " << (int)deviceID << endl;
+                                }
                                 sleep(1);
                             }
                         }
@@ -252,7 +262,10 @@ void tick_event()
                                 Alert alert{now, ALERT_LIGHTS_ON, deviceID, 1};
                                 int len = serialize_alert(&alert, buffer);
                                 send(app_sockfd, buffer, len, 0);
-                                cout << "[AUTO] Light ON for Dev " << (int)deviceID << endl;
+                                {
+                                    lock_guard<mutex> lk(server_log_mutex);
+                                    cout << "[AUTO] Light ON for Dev " << (int)deviceID << endl;
+                                }
                                 sleep(1);
                             }
                         }
@@ -266,7 +279,10 @@ void tick_event()
                                 Alert alert{now, ALERT_LIGHTS_OFF, deviceID, 0};
                                 int len = serialize_alert(&alert, buffer);
                                 send(app_sockfd, buffer, len, 0);
-                                cout << "[AUTO] Light OFF for Dev " << (int)deviceID << endl;
+                                {
+                                    lock_guard<mutex> lk(server_log_mutex);
+                                    cout << "[AUTO] Light OFF for Dev " << (int)deviceID << endl;
+                                }
                                 sleep(1);
                             }
                         }
@@ -291,7 +307,10 @@ void tick_event()
                             alert.alert_value = 0; // 0 = OFF
                             int len = serialize_alert(&alert, buffer);
                             send(app_sockfd, buffer, len, 0);
-                            cout << "[AUTO] Pump OFF (High Moisture) for Dev " << (int)deviceID << endl;
+                            {
+                                lock_guard<mutex> lk(server_log_mutex);
+                                cout << "[AUTO] Pump OFF (High Moisture) for Dev " << (int)deviceID << endl;
+                            }
                             sleep(1);
                         }
                     }
@@ -309,7 +328,10 @@ void tick_event()
                             alert.alert_value = 1; // 1 = ON
                             int len = serialize_alert(&alert, buffer);
                             send(app_sockfd, buffer, len, 0);
-                            cout << "[AUTO] Pump ON (Low Moisture) for Dev " << (int)deviceID << endl;
+                            {
+                                lock_guard<mutex> lk(server_log_mutex);
+                                cout << "[AUTO] Pump ON (Low Moisture) for Dev " << (int)deviceID << endl;
+                            }
                             sleep(1);
                         }
                     }
@@ -335,7 +357,10 @@ void tick_event()
                             alert.alert_value = 1; // 1 = ON
                             int len = serialize_alert(&alert, buffer);
                             send(app_sockfd, buffer, len, 0);
-                            cout << "[AUTO] Fertilizer ON (Low NPK) for Dev " << (int)deviceID << endl;
+                            {
+                                lock_guard<mutex> lk(server_log_mutex);
+                                cout << "[AUTO] Fertilizer ON (Low NPK) for Dev " << (int)deviceID << endl;
+                            }
                             sleep(1);
                         }
                     }
@@ -353,7 +378,10 @@ void tick_event()
                             alert.alert_value = 0; // 0 = OFF
                             int len = serialize_alert(&alert, buffer);
                             send(app_sockfd, buffer, len, 0);
-                            cout << "[AUTO] Fertilizer OFF (NPK OK) for Dev " << (int)deviceID << endl;
+                            {
+                                lock_guard<mutex> lk(server_log_mutex);
+                                cout << "[AUTO] Fertilizer OFF (NPK OK) for Dev " << (int)deviceID << endl;
+                            }
                             sleep(1);
                         }
                     }
@@ -1156,7 +1184,10 @@ void client_handler(int client_fd)
         if (packet_len > 0)
         {
             ParsedPacket packet;
-            cout << "Client " << client_fd << " request\n";
+            {
+                lock_guard<mutex> lk(server_log_mutex);
+                cout << "Client " << client_fd << " request\n";
+            }
             if (deserialize_packet(recv_buffer, packet_len, &packet) == 0)
             {
                 switch (packet.type)
@@ -1240,13 +1271,17 @@ void client_handler(int client_fd)
         else if (packet_len == 0)
         {
             // CLIENT NGẮT KẾT NỐI (GRACEFUL)
-            cout << "Client " << client_fd << " disconnected gracefully.\n";
+            {
+                lock_guard<mutex> lk(server_log_mutex);
+                cout << "Client " << client_fd << " disconnected gracefully.\n";
+            }
             break;
         }
         else
         { // packet_len < 0
             if (errno == ECONNRESET)
             {
+                lock_guard<mutex> lk(server_log_mutex);
                 cout << "Client " << client_fd << " connection reset by peer.\n";
             }
             else
@@ -1266,7 +1301,10 @@ void client_handler(int client_fd)
             app->sockfd = 0;
         }
     }
-    cout << "Client " << client_fd << " exit\n";
+    {
+        lock_guard<mutex> lk(server_log_mutex);
+        cout << "Client " << client_fd << " exit\n";
+    }
 
     close(client_fd);
 }
@@ -1404,6 +1442,7 @@ void seed()
     device_file.close();
 }
 void print_server_status() {
+    lock_guard<mutex> lk(server_log_mutex);
     cout << "\n\n================ SERVER STATUS REPORT ================\n";
     
     lock_guard<mutex> lock_s(sensor_devices_mutex);
@@ -1529,7 +1568,10 @@ int main()
                 continue;
             }
 
-            cout << "SERVER -> New connection attempt on FD: " << connfd << endl;
+            {
+                lock_guard<mutex> lk(server_log_mutex);
+                cout << "SERVER -> New connection attempt on FD: " << connfd << endl;
+            }
             thread t(client_handler, connfd);
             t.detach();
         }

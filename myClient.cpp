@@ -4,6 +4,29 @@ vector<string> data_logs;
 vector<string> alert_logs;
 vector<uint8_t> available_devices;
 
+// Store latest interval data per device for quick lookup
+unordered_map<uint8_t, IntervalData> last_interval_data;
+
+// Store schedules set by this client (pump times and light ON/OFF pairs)
+struct DeviceSchedules {
+    vector<uint32_t> pump_times; // timestamps (epoch)
+    vector<pair<uint32_t,uint32_t>> light_pairs; // ON, OFF epoch pairs
+};
+unordered_map<uint8_t, DeviceSchedules> schedules_map;
+
+// Track inferred direct control states per device (based on alerts or client actions)
+struct DirectState {
+    bool pump = false;
+    bool light = false;
+    bool fert = false;
+};
+unordered_map<uint8_t, DirectState> direct_state_map;
+
+// Mutex to protect shared device state across threads
+mutex device_state_mutex;
+// Mutex to protect log containers printed from multiple threads
+mutex logs_mutex;
+
 // debug function
 void print_buffer(const char *title, const uint8_t *buffer, int len)
 {
@@ -234,12 +257,18 @@ bool client_info(int sockfd, uint32_t token, bool log)
 
     // --- Nhận Info Response ---
     packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
-    if (packet_len <= 0)
+    if (packet_len < 0)
     {
-        cerr << "Server disconnected.\n";
+        perror("recv");
+        cerr << "Server disconnected or recv error.\n";
         return false;
     }
-    if(log) 
+    if (packet_len == 0)
+    {
+        cerr << "Server closed connection (recv returned 0).\n";
+        return false;
+    }
+    if(log)
         print_buffer("Client receive: Info Response", recv_buffer, packet_len);
 
     ParsedPacket packet;
@@ -597,10 +626,23 @@ bool client_set_parameter(int sockfd, uint32_t token)
         cout << "Invalid parameter option.\n";
         return false;
     }
-
-    cout << "Enter new value for parameter: ";
+                // Show device settings immediately and validate
+                if(!client_get_device_params(sockfd, token, dev_id, true)){
+                    cout << "Invalid Device ID or cannot fetch settings\n";
+                    return false;
+                }
+    // Ask user for the new parameter value
     int val;
-    cin >> val;
+    cout << "Enter new value (0-255): ";
+    if (!(cin >> val)) {
+        cin.clear(); cin.ignore(1000, '\n');
+        cout << "Invalid input. Cancelling set parameter.\n";
+        return false;
+    }
+    if (val < 0 || val > 255) {
+        cout << "Value out of range. Must be between 0 and 255.\n";
+        return false;
+    }
     uint8_t param_value = static_cast<uint8_t>(val);
 
     // --- Gửi Set Parameter Request ---
@@ -668,18 +710,67 @@ bool client_get_device_params(int sockfd, uint32_t token, uint8_t device_id, boo
                 if (packet.type == MSG_TYPE_SETTINGS_SERVER) {
             SettingsResponse* s = &packet.data.setting_response;
             
-            cout << "\n========================================\n";
-            cout << "   SETTINGS FOR DEVICE ID: " << (int)device_id << "\n";
-            cout << "========================================\n";
-            cout << " [Power]      Mode: " << (int)s->power << "%\n";
-            cout << " [Timer]      Interval T: " << (int)s->T << " minutes\n";
-            cout << " [Fertilizer] Concentration: " << (int)s->fert_C << " g/L\n";
-            cout << "              Volume: " << (int)s->fert_V << " L\n";
-            cout << " [Thresholds] Humidity: " << (int)s->Hmin << "% - " << (int)s->Hmax << "%\n";
-            cout << "              N-P-K Min: " << (int)s->Nmin << " - " 
-                                               << (int)s->Pmin << " - " 
-                                               << (int)s->Kmin << "\n";
-            cout << "========================================\n\n";
+            // Build full device info view
+            cout << "\nDEVICE ID: " << (int)device_id << " [SENSORS]\n";
+            // Sensors: use last known IntervalData if available
+            {
+                lock_guard<mutex> lk(device_state_mutex);
+                auto it = last_interval_data.find(device_id);
+                if (it != last_interval_data.end()) {
+                    IntervalData &ld = it->second;
+                    cout << "   Soil Moisture: " << (int)ld.humidity << "%\n";
+                    cout << "   NPK Values:    N=" << (int)ld.n_level
+                         << ", P=" << (int)ld.p_level
+                         << ", K=" << (int)ld.k_level << "\n";
+                } else {
+                    cout << "   Soil Moisture: N/A\n";
+                    cout << "   NPK Values:    N/A\n";
+                }
+            }
+
+            cout << " [CONFIG]\n";
+            cout << "   Fertilizer:    Conc=" << (int)s->fert_C << "g/L, Vol=" << (int)s->fert_V << "L\n";
+            cout << "   Power (Lamp):  " << (int)s->power << "%\n";
+            cout << "   Interval T:    " << (int)s->T << " mins\n";
+
+            cout << " [AUTO SCHEDULES]\n";
+            {
+                lock_guard<mutex> lk(device_state_mutex);
+                auto dit = schedules_map.find(device_id);
+                if (dit != schedules_map.end() && !dit->second.pump_times.empty()) {
+                    cout << "   Water Times:\n";
+                    for (auto &ts : dit->second.pump_times) {
+                        cout << "      - " << format_timestamp(ts) << "\n";
+                    }
+                } else {
+                    cout << "   Water Times: None\n";
+                }
+
+                if (dit != schedules_map.end() && !dit->second.light_pairs.empty()) {
+                    cout << "   Lighting:\n";
+                    for (auto &p : dit->second.light_pairs) {
+                        cout << "      - ON :  " << format_timestamp(p.first) << "\n";
+                        cout << "        OFF:  " << format_timestamp(p.second) << "\n";
+                    }
+                } else {
+                    cout << "   Lighting: None\n";
+                }
+            }
+
+            cout << " [THRESHOLDS]\n";
+            cout << "   Humidity:      " << (int)s->Hmin << "% - " << (int)s->Hmax << "%\n";
+            cout << "   NPK Min:       N=" << (int)s->Nmin << ", P=" << (int)s->Pmin << ", K=" << (int)s->Kmin << "\n";
+
+            cout << " [DIRECT CONTROL]\n";
+            {
+                lock_guard<mutex> lk(device_state_mutex);
+                DirectState st = direct_state_map[device_id];
+                cout << "   Pump:  " << (st.pump ? "ON" : "OFF") << "\n";
+                cout << "   Light: " << (st.light ? "ON" : "OFF") << "\n";
+                cout << "   Fert:  " << (st.fert ? "ON" : "OFF") << "\n";
+            }
+
+            cout << "\n";
             return true;
         } 
         else if (packet.type == MSG_TYPE_CMD_RESPONSE) {
@@ -776,9 +867,16 @@ bool send_simple_request(int sockfd, uint8_t* buffer, int len, const char* actio
     print_buffer((string("Client send: ") + action_name).c_str(), buffer, len);
 
     uint8_t recv_buf[MAX_BUFFER_SIZE];
+    cerr << "DEBUG: send_simple_request waiting for recv() for action '" << action_name << "'\n";
     int rlen = recv(sockfd, recv_buf, sizeof(recv_buf), 0);
-    if (rlen <= 0) {
-        cerr << "Server disconnected.\n";
+    cerr << "DEBUG: send_simple_request recv() returned " << rlen << " errno=" << errno << "\n";
+    if (rlen < 0) {
+        perror("recv");
+        cerr << "Server disconnected or recv error.\n";
+        return false;
+    }
+    if (rlen == 0) {
+        cerr << "Server closed connection (recv returned 0).\n";
         return false;
     }
     print_buffer((string("Client receive: ") + action_name + " Response").c_str(), recv_buf, rlen);
@@ -802,6 +900,12 @@ bool client_set_pump_schedule(int sockfd, uint32_t token) {
     cout << "Enter Device ID (0 to cancel): ";
     if (!(cin >> d_id) || d_id == 0) return false;
 
+    // Show device settings immediately for user
+    if (!client_get_device_params(sockfd, token, (uint8_t)d_id, true)) {
+        cout << "Cannot get device settings; canceling.\n";
+        return false;
+    }
+
     cout << "Enter number of slots: ";
     cin >> count;
     if (count <= 0 || count > MAX_TIME_STAMP) return false;
@@ -820,7 +924,13 @@ bool client_set_pump_schedule(int sockfd, uint32_t token) {
     int len = serialize_set_pump_schedule(token, (uint8_t)d_id, (uint8_t)count,
                                           timestamps.data(), buffer);
 
-    return send_simple_request(sockfd, buffer, len, "Set Pump Schedule");
+    bool ok = send_simple_request(sockfd, buffer, len, "Set Pump Schedule");
+    if (ok) {
+        lock_guard<mutex> lk(device_state_mutex);
+        DeviceSchedules &ds = schedules_map[(uint8_t)d_id];
+        ds.pump_times = timestamps;
+    }
+    return ok;
 }
 
 bool client_set_light_schedule(int sockfd, uint32_t token) {
@@ -830,6 +940,12 @@ bool client_set_light_schedule(int sockfd, uint32_t token) {
 
     cout << "Enter Device ID (0 to cancel): ";
     if (!(cin >> d_id) || d_id == 0) return false;
+
+    // Show device settings immediately for user
+    if (!client_get_device_params(sockfd, token, (uint8_t)d_id, true)) {
+        cout << "Cannot get device settings; canceling.\n";
+        return false;
+    }
 
     cout << "Enter number of time pairs (ON/OFF): ";
     cin >> count;
@@ -851,53 +967,174 @@ bool client_set_light_schedule(int sockfd, uint32_t token) {
     int len = serialize_set_light_schedule(token, (uint8_t)d_id,
                                            (uint8_t)(count * 2),
                                            timestamps.data(), buffer);
-    return send_simple_request(sockfd, buffer, len, "Set Light Schedule");
+
+    bool ok = send_simple_request(sockfd, buffer, len, "Set Light Schedule");
+    if (ok) {
+        lock_guard<mutex> lk(device_state_mutex);
+        DeviceSchedules &ds = schedules_map[(uint8_t)d_id];
+        ds.light_pairs.clear();
+        for (int i = 0; i < count; ++i) {
+            uint32_t on_ts = timestamps[2 * i];
+            uint32_t off_ts = timestamps[2 * i + 1];
+            ds.light_pairs.emplace_back(on_ts, off_ts);
+        }
+    }
+    return ok;
 }
 
 
 bool client_set_direct_pump(int sockfd, uint32_t token) {
-    int d_id, state;
+    int d_id;
     cout << "\n--- DIRECT CONTROL: PUMP ---\n";
-    client_info(sockfd, token, false);
+    if (!client_info(sockfd, token, false)) return false;
+
     cout << "Enter Device ID (0 to cancel): ";
-    if (!(cin >> d_id)) { cin.clear(); cin.ignore(1000, '\n'); return false; }
-    if (d_id == 0) { cout << "Cancelled.\n"; return false; }
+    if (!(cin >> d_id) || d_id == 0) { cout << "Cancelled.\n"; return false; }
+    uint8_t dev = static_cast<uint8_t>(d_id);
+    
+    // Show device settings immediately
+    client_get_device_params(sockfd, token, dev, true);
 
-    cout << "Action (1: ON, 0: OFF): "; cin >> state;
+    while (true) {
+        cout << "\n[Pump Control] Device " << (int)dev << " - options:\n";
+        cout << "  1) Turn ON\n";
+        cout << "  2) Turn OFF\n";
+        cout << "  3) Show device settings\n";
+        cout << "  0) Back\n";
+        cout << "Choice: ";
+        int choice; if (!(cin >> choice)) { cin.clear(); cin.ignore(1000, '\n'); continue; }
 
-    uint8_t buffer[MAX_BUFFER_SIZE];
-    int len = serialize_set_direct_pump(token, (uint8_t)d_id, state != 0, buffer);
-    return send_simple_request(sockfd, buffer, len, "Set Direct Pump");
+        if (choice == 0) break;
+        if (choice == 3) {
+            client_get_device_params(sockfd, token, dev, true);
+            continue;
+        }
+
+        if (choice == 1 || choice == 2) {
+            uint8_t buffer[MAX_BUFFER_SIZE];
+            int len = serialize_set_direct_pump(token, dev, (choice == 1) ? 1 : 0, buffer);
+            if (!send_simple_request(sockfd, buffer, len, "Set Direct Pump")) {
+                cout << "Action failed or server disconnected.\n";
+                return false;
+            }
+
+            // update inferred direct state
+            {
+                lock_guard<mutex> lk(device_state_mutex);
+                DirectState &st = direct_state_map[dev];
+                st.pump = (choice == 1);
+            }
+
+            // After turning ON, show settings to help user decide when to turn OFF
+            if (choice == 1) client_get_device_params(sockfd, token, dev, true);
+        }
+        else {
+            cout << "Invalid choice.\n";
+        }
+    }
+    return true;
 }
 
 bool client_set_direct_light(int sockfd, uint32_t token) {
-    int d_id, state;
+    int d_id;
     cout << "\n--- DIRECT CONTROL: LIGHT ---\n";
-    client_info(sockfd, token, false);
+    if (!client_info(sockfd, token, false)) return false;
+
     cout << "Enter Device ID (0 to cancel): ";
-    if (!(cin >> d_id)) { cin.clear(); cin.ignore(1000, '\n'); return false; }
-    if (d_id == 0) { cout << "Cancelled.\n"; return false; }
+    if (!(cin >> d_id) || d_id == 0) { cout << "Cancelled.\n"; return false; }
+    uint8_t dev = static_cast<uint8_t>(d_id);
+    
+    // Show device settings immediately
+    client_get_device_params(sockfd, token, dev, true);
 
-    cout << "Action (1: ON, 0: OFF): "; cin >> state;
+    while (true) {
+        cout << "\n[Light Control] Device " << (int)dev << " - options:\n";
+        cout << "  1) Turn ON\n";
+        cout << "  2) Turn OFF\n";
+        cout << "  3) Show device settings\n";
+        cout << "  0) Back\n";
+        cout << "Choice: ";
+        int choice; if (!(cin >> choice)) { cin.clear(); cin.ignore(1000, '\n'); continue; }
 
-    uint8_t buffer[MAX_BUFFER_SIZE];
-    int len = serialize_set_direct_light(token, (uint8_t)d_id, state != 0, buffer);
-    return send_simple_request(sockfd, buffer, len, "Set Direct Light");
+        if (choice == 0) break;
+        if (choice == 3) {
+            client_get_device_params(sockfd, token, dev, true);
+            continue;
+        }
+
+        if (choice == 1 || choice == 2) {
+            uint8_t buffer[MAX_BUFFER_SIZE];
+            int len = serialize_set_direct_light(token, dev, (choice == 1) ? 1 : 0, buffer);
+            if (!send_simple_request(sockfd, buffer, len, "Set Direct Light")) {
+                cout << "Action failed or server disconnected.\n";
+                return false;
+            }
+
+            // update inferred direct state
+            {
+                lock_guard<mutex> lk(device_state_mutex);
+                DirectState &st = direct_state_map[dev];
+                st.light = (choice == 1);
+            }
+
+            if (choice == 1) client_get_device_params(sockfd, token, dev, true);
+        }
+        else {
+            cout << "Invalid choice.\n";
+        }
+    }
+    return true;
 }
 
 bool client_set_direct_fert(int sockfd, uint32_t token) {
-    int d_id, state;
+    int d_id;
     cout << "\n--- DIRECT CONTROL: FERTILIZER ---\n";
-    client_info(sockfd, token, false);
+    if (!client_info(sockfd, token, false)) return false;
+
     cout << "Enter Device ID (0 to cancel): ";
-    if (!(cin >> d_id)) { cin.clear(); cin.ignore(1000, '\n'); return false; }
-    if (d_id == 0) { cout << "Cancelled.\n"; return false; }
+    if (!(cin >> d_id) || d_id == 0) { cout << "Cancelled.\n"; return false; }
+    uint8_t dev = static_cast<uint8_t>(d_id);
+    
+    // Show device settings immediately
+    client_get_device_params(sockfd, token, dev, true);
 
-    cout << "Action (1: ON, 0: OFF): "; cin >> state;
+    while (true) {
+        cout << "\n[Fertilizer Control] Device " << (int)dev << " - options:\n";
+        cout << "  1) Turn ON\n";
+        cout << "  2) Turn OFF\n";
+        cout << "  3) Show device settings\n";
+        cout << "  0) Back\n";
+        cout << "Choice: ";
+        int choice; if (!(cin >> choice)) { cin.clear(); cin.ignore(1000, '\n'); continue; }
 
-    uint8_t buffer[MAX_BUFFER_SIZE];
-    int len = serialize_set_direct_fert(token, (uint8_t)d_id, state != 0, buffer);
-    return send_simple_request(sockfd, buffer, len, "Set Direct Fert");
+        if (choice == 0) break;
+        if (choice == 3) {
+            client_get_device_params(sockfd, token, dev, true);
+            continue;
+        }
+
+        if (choice == 1 || choice == 2) {
+            uint8_t buffer[MAX_BUFFER_SIZE];
+            int len = serialize_set_direct_fert(token, dev, (choice == 1) ? 1 : 0, buffer);
+            if (!send_simple_request(sockfd, buffer, len, "Set Direct Fert")) {
+                cout << "Action failed or server disconnected.\n";
+                return false;
+            }
+
+            // update inferred direct state
+            {
+                lock_guard<mutex> lk(device_state_mutex);
+                DirectState &st = direct_state_map[dev];
+                st.fert = (choice == 1);
+            }
+
+            if (choice == 1) client_get_device_params(sockfd, token, dev, true);
+        }
+        else {
+            cout << "Invalid choice.\n";
+        }
+    }
+    return true;
 }
 // --- MENU QUẢN LÝ (Add/Delete) ---
 void show_main_menu()
@@ -1006,11 +1243,17 @@ void menu_logs() {
         if (cmd == 0) break;
         if (cmd == 1) {
             cout << "\n[DATA LOGS]\n";
-            for(const auto &s : data_logs) cout << s << "\n";
+            {
+                lock_guard<mutex> lk(logs_mutex);
+                for(const auto &s : data_logs) cout << s << "\n";
+            }
             cout << "[END]\n";
         } else if (cmd == 2) {
             cout << "\n[ALERT LOGS]\n";
-            for(const auto &s : alert_logs) cout << s << "\n";
+            {
+                lock_guard<mutex> lk(logs_mutex);
+                for(const auto &s : alert_logs) cout << s << "\n";
+            }
             cout << "[END]\n";
         }else if(cmd == 9){
             show_ctrl_menu();
@@ -1078,6 +1321,11 @@ void handle_packet(const ParsedPacket &packet)
         case MSG_TYPE_DATA:
         {
             IntervalData data = packet.data.interval_data;
+            // update last seen data for this device
+            {
+                lock_guard<mutex> lk(device_state_mutex);
+                last_interval_data[data.dev_id] = data;
+            }
             ostringstream oss;
             oss << "[DATA] " << format_timestamp(data.timestamp)
                 << ", deviceID=" << (int)data.dev_id
@@ -1085,12 +1333,33 @@ void handle_packet(const ParsedPacket &packet)
                 << ", N=" << (int)data.n_level
                 << ", P=" << (int)data.p_level
                 << ", K=" << (int)data.k_level;
-            data_logs.push_back(oss.str());
+            string s = oss.str();
+            {
+                lock_guard<mutex> lk(logs_mutex);
+                data_logs.push_back(s);
+            }
+            // Do NOT print DATA immediately; user requested data logs
+            // to be shown only when they query the logs.
             break;
         }
         case MSG_TYPE_ALERT:
         {
             Alert alert = packet.data.alert;
+            // update direct control state based on alert
+            {
+                lock_guard<mutex> lk(device_state_mutex);
+                DirectState &st = direct_state_map[alert.dev_id];
+                switch (alert.alert_code)
+                {
+                    case ALERT_WATERING_START:  st.pump = true; break;
+                    case ALERT_WATERING_END:    st.pump = false; break;
+                    case ALERT_FERTILIZE_START: st.fert = true; break;
+                    case ALERT_FERTILIZE_END:   st.fert = false; break;
+                    case ALERT_LIGHTS_ON:       st.light = true; break;
+                    case ALERT_LIGHTS_OFF:      st.light = false; break;
+                    default: break;
+                }
+            }
             string alert_str;
             switch (alert.alert_code)
             {
@@ -1106,7 +1375,12 @@ void handle_packet(const ParsedPacket &packet)
             oss << "[ALERT] " << format_timestamp(alert.timestamp)
                 << ", deviceID=" << (int)alert.dev_id
                 << ", code=" << alert_str;
-            alert_logs.push_back(oss.str());
+            string s = oss.str();
+            {
+                lock_guard<mutex> lk(logs_mutex);
+                alert_logs.push_back(s);
+            }
+            // Do NOT print ALERT immediately; user requested logs only on demand
             break;
         }
         default:
@@ -1119,18 +1393,42 @@ void recv_thread_func(int sockfd)
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
     while (true)
     {
+        // Peek first byte to decide whether this thread should consume the packet.
+        // We only want to consume asynchronous messages (DATA, ALERT).
         memset(recv_buffer, 0, sizeof(recv_buffer));
-        int packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
-        if (packet_len <= 0)
+        uint8_t peek_byte = 0;
+        int pr = recv(sockfd, &peek_byte, 1, MSG_PEEK);
+        if (pr <= 0)
         {
-            cout << "Server disconnected.\n";
+            // If socket closed or error, exit
+            if (pr == 0)
+                cout << "Server closed connection (recv peek returned 0).\n";
+            else
+                perror("recv (peek)");
             exit(1);
         }
 
-        ParsedPacket packet;
-        if (deserialize_packet(recv_buffer, packet_len, &packet) == 0)
+        // If the incoming packet is DATA or ALERT, consume and handle it.
+        if (peek_byte == MSG_TYPE_DATA || peek_byte == MSG_TYPE_ALERT)
         {
-            handle_packet(packet);
+            int packet_len = recv(sockfd, recv_buffer, sizeof(recv_buffer), 0);
+            if (packet_len <= 0)
+            {
+                cout << "Server disconnected while receiving async packet.\n";
+                exit(1);
+            }
+
+            ParsedPacket packet;
+            if (deserialize_packet(recv_buffer, packet_len, &packet) == 0)
+            {
+                handle_packet(packet);
+            }
+        }
+        else
+        {
+            // Not an async message for the background thread; sleep shortly
+            // to allow the main thread to recv command responses.
+            this_thread::sleep_for(chrono::milliseconds(10));
         }
     }
 }
@@ -1198,11 +1496,21 @@ int main(int argc, char **argv)
         {
             case 0: cout << "Exiting...\n"; close(sockfd); return 0;
             case 1: cout << "\n[1] Scanning Devices...\n"; client_scan(sockfd, token);
-                    cout << "\n[2] Getting Info...\n"; client_info(sockfd, token); break;
-            case 2: menu_logs(); break;
-            case 3: menu_manager(sockfd, token); break;
-            case 4: menu_control(sockfd, token); break;
-            case 5: menu_settings(sockfd, token); break;
+                    cout << "\n[2] Getting Info...\n"; client_info(sockfd, token); 
+                    show_main_menu();
+                    break;
+            case 2: menu_logs(); 
+                    show_main_menu();
+                    break;
+            case 3: menu_manager(sockfd, token); 
+                    show_main_menu();
+                    break;
+            case 4: menu_control(sockfd, token); 
+                    show_main_menu();
+                    break;
+            case 5: menu_settings(sockfd, token); 
+                    show_main_menu();
+                    break;
             case 9: show_main_menu(); break;
             default: cout << "Invalid command.\n"; break;
         }

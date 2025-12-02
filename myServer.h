@@ -67,6 +67,8 @@ struct DeviceSensor
 extern vector<App> apps;
 extern mutex apps_mutex;
 
+extern mutex server_log_mutex;
+
 extern map<string, string> app_credentials;
 extern mutex credentials_mutex;
 
