@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Smart Garden</title>
+</head>
+<body>
+  <h2>Login</h2>
+  <input id="app" placeholder="App ID">
+  <input id="pass" type="password" placeholder="Password">
+  <button onclick="login()">Login</button>
+
+  <h2>Scan</h2>
+  <button onclick="scan()">Scan Devices</button>
+
+  <pre id="out"></pre>
+
+<script>
+function login() {
+  fetch("http://127.0.0.1:8000/login", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      app_id: app.value,
+      password: pass.value
+    })
+  }).then(r => r.json()).then(console.log)
+}
+
+function scan() {
+  fetch("http://127.0.0.1:8000/scan")
+    .then(r => r.json())
+    .then(d => out.textContent = JSON.stringify(d, null, 2))
+}
+</script>
+</body>
+</html>
