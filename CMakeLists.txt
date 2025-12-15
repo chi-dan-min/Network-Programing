@@ -15,16 +15,17 @@ set(SERVER_SRC
     protocol.c
 )
 
-# Client sources
-set(CLIENT_SRC
-    myClient.cpp
-    protocol.c
+set(CLIENT_API_SRC
+    client_api.cpp    
 )
 
 # Build executables
 add_executable(server ${SERVER_SRC})
-add_executable(client ${CLIENT_SRC})
 
-# Link pthread for Linux
+# Tạo thư viện chia sẻ client_core
+add_library(client_core SHARED ${CLIENT_API_SRC})
+set_target_properties(client_core PROPERTIES OUTPUT_NAME "client_core") 
+
+# Link pthread cho cả Server và API
 target_link_libraries(server pthread)
-target_link_libraries(client pthread)
+target_link_libraries(client_core pthread)
