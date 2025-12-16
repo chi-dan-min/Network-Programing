@@ -12,7 +12,8 @@
 #include <netinet/in.h>
 #include "protocol.h"
 #include <thread>
-
+#include <mutex>
+#include <condition_variable>
 #define SERV_PORT 3000
 
 using namespace std;
@@ -21,9 +22,6 @@ using namespace std;
 // =====================
 extern std::vector<std::string> data_logs;
 extern std::vector<std::string> alert_logs;
-extern std::vector<uint8_t> current_gardens;
-extern std::vector<uint8_t> available_devices;
-extern std::vector<uint8_t> current_devices;
 
 // =====================
 // Debug functions
@@ -51,6 +49,8 @@ bool client_set_direct_pump(int sockfd, uint32_t token);
 bool client_set_direct_light(int sockfd, uint32_t token);
 bool client_set_direct_fert(int sockfd, uint32_t token);
 
+void recv_thread_func(int sockfd);
+bool wait_for_response(ParsedPacket &out_packet);
 // =====================
 // UI helpers
 // =====================

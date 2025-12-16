@@ -31,6 +31,18 @@ mutex devices_mutex;
 map<uint8_t, DeviceSensor> sensor_devices; // device_id -> DeviceSensor
 mutex sensor_devices_mutex;
 
+struct PendingInterval {
+    int sockfd;
+    IntervalData data;
+};
+
+struct PendingAlert {
+    int sockfd;
+    uint32_t timestamp;
+    uint8_t alert_code;
+    uint8_t dev_id;
+    uint8_t alert_value;
+};
 string format_timestamp(uint32_t ts)
 {
     time_t raw = ts;
@@ -70,6 +82,7 @@ void auto_decay_loop()
 {
     while (true)
     {
+        // 1. Chỉ giữ Lock khi tính toán trừ số liệu
         {
             lock_guard<mutex> lock(sensor_devices_mutex);
 
@@ -77,8 +90,13 @@ void auto_decay_loop()
             {
                 DeviceSensor &dev = kv.second;
                 uint8_t deviceID = kv.first;
-                // Skip devices not assigned to any garden
-                if (device_to_garden[deviceID] == 0)
+                
+                int gardenID;
+                {
+                    lock_guard<mutex> lock(devices_mutex);
+                    gardenID = device_to_garden[deviceID];
+                }
+                if(!gardenID)
                     continue;
 
                 // Humidity reduction
@@ -86,19 +104,15 @@ void auto_decay_loop()
                                         ? dev.soil_moisture - dev.decay_rate
                                         : 0;
 
-                // NPK reduction (half rate)
+                // NPK reduction
                 uint8_t npk_decay = max<uint8_t>(1, dev.decay_rate / 2);
 
                 dev.N = (dev.N > npk_decay) ? dev.N - npk_decay : 0;
                 dev.P = (dev.P > npk_decay) ? dev.P - npk_decay : 0;
                 dev.K = (dev.K > npk_decay) ? dev.K - npk_decay : 0;
-
-                //print_device_status(dev, deviceID, device_to_garden[deviceID]);
             }
-            //cout << endl;
-        }
-
-        sleep(300); // decay mỗi 300 giây
+        } 
+        sleep(60); 
     }
 }
 
@@ -178,10 +192,14 @@ void tick_event()
     while (true)
     {
         uint32_t now = time(nullptr);
+        
+        // Tạo 2 danh sách tạm để lưu các gói tin cần gửi
+        vector<PendingInterval> intervals_to_send;
+        vector<PendingAlert> alerts_to_send;
 
         {
             lock_guard<mutex> lock(sensor_devices_mutex);
-
+            
             for (auto &kv : sensor_devices)
             {
                 uint8_t deviceID = kv.first;
@@ -193,13 +211,28 @@ void tick_event()
                 App *app = findAppByDeviceID(deviceID); 
                 if (app && app->token != 0) app_sockfd = app->sockfd;
 
-                uint8_t buffer[MAX_BUFFER_SIZE];
+                if (dev.pump_on && dev.soil_moisture < 100) {
+                    // tăng 1% mỗi 30 giây 
+                    if ((now + deviceID) % 30 == 0) { 
+                        dev.soil_moisture = min(100, dev.soil_moisture + 1);
+                    }
+                }
 
-                // =========================================================
+                // --- Tăng NPK khi Máy bón phân bật ---
+                if (dev.fert_on) {
+                    if ((now + deviceID) % 30 == 0) {
+                        uint8_t nutrient_mass = (dev.fert_C * dev.fert_V);
+                        uint8_t increase_rate = max<uint8_t>(1, nutrient_mass / 50); 
+
+                        if (dev.N < 100) dev.N = min(100, dev.N + increase_rate);
+                        if (dev.P < 100) dev.P = min(100, dev.P + increase_rate);
+                        if (dev.K < 100) dev.K = min(100, dev.K + increase_rate);
+                    }
+                }
+
                 // 1. INTERVAL DATA 
-                // =========================================================
                 dev.time_count++; 
-                if (dev.time_count >= dev.T) 
+                if (dev.time_count >= dev.T * 60) 
                 {
                     if (app_sockfd != -1) {
                         IntervalData data{};
@@ -209,161 +242,122 @@ void tick_event()
                         data.n_level = dev.N;
                         data.p_level = dev.P;
                         data.k_level = dev.K;
-                        send_interval_data(app_sockfd, data);
-                        sleep(1);
+                        
+                        intervals_to_send.push_back({app_sockfd, data});
                     }
                     dev.time_count = 0;
                 }
 
-                // =========================================================
-                // 2. AUTO WATERING 
-                // =========================================================
-                //[now, now+60] 
+                // 2. AUTO WATERING (SCHEDULE)
+                // [now, now+60]
                 for (uint32_t scheduled_ts : dev.watering_times) 
                 {
-                    if (scheduled_ts >= now && scheduled_ts < now + 60)
+                    if (scheduled_ts <= now && now <= scheduled_ts + 60)
                     {
                         if (!dev.pump_on) {
-                            dev.pump_on = 1;
+                            dev.pump_on = 1; // Cập nhật trạng thái ngay
                             if (app_sockfd != -1) {
-                                Alert alert{now, ALERT_WATERING_START, deviceID, 1};
-                                int len = serialize_alert(&alert, buffer);
-                                send(app_sockfd, buffer, len, 0);
-                                cout << "[AUTO] Pump ON (Schedule) for Dev " << (int)deviceID << endl;
-                                sleep(1);
+                                // Lưu hành động bật bơm vào danh sách
+                                alerts_to_send.push_back({app_sockfd, now, ALERT_WATERING_START, deviceID, 1});
                             }
                         }
                     }
                 }
 
-                // =========================================================
                 // 3. AUTO LIGHTING 
-                // =========================================================
                 for (auto &interval : dev.lighting_times)
                 {
                     uint32_t start_ts = interval.first;
                     uint32_t end_ts = interval.second;
 
-                    if (start_ts >= now && start_ts < now + 60)
-                    {
+                    if (start_ts <= now && now <= start_ts + 60) {
                         if (!dev.light_on) {
                             dev.light_on = 1;
                             if (app_sockfd != -1) {
-                                Alert alert{now, ALERT_LIGHTS_ON, deviceID, 1};
-                                int len = serialize_alert(&alert, buffer);
-                                send(app_sockfd, buffer, len, 0);
-                                cout << "[AUTO] Light ON for Dev " << (int)deviceID << endl;
-                                sleep(1);
+                                alerts_to_send.push_back({app_sockfd, now, ALERT_LIGHTS_ON, deviceID, 1});
                             }
                         }
                     }
-                    
-                    if (end_ts >= now && end_ts < now + 60)
-                    {
+                    if (end_ts <= now && now <= end_ts + 60) {
                         if (dev.light_on) {
                             dev.light_on = 0;
                             if (app_sockfd != -1) {
-                                Alert alert{now, ALERT_LIGHTS_OFF, deviceID, 0};
-                                int len = serialize_alert(&alert, buffer);
-                                send(app_sockfd, buffer, len, 0);
-                                cout << "[AUTO] Light OFF for Dev " << (int)deviceID << endl;
-                                sleep(1);
+                                alerts_to_send.push_back({app_sockfd, now, ALERT_LIGHTS_OFF, deviceID, 0});
                             }
                         }
                     }
                 }
 
-
-                // =========================================================
                 // 4. AUTO SOIL MOISTURE 
-                // =========================================================
-                
-                if (dev.soil_moisture > dev.Hmax)
-                {
-                    if (dev.pump_on)
-                    {
-                        dev.pump_on = 0; // Tắt bơm
+                if (dev.soil_moisture > dev.Hmax) {
+                    if (dev.pump_on) {
+                        dev.pump_on = 0;
                         if (app_sockfd != -1) {
-                            Alert alert{};
-                            alert.timestamp = now;
-                            alert.alert_code = ALERT_WATERING_END;
-                            alert.dev_id = deviceID;
-                            alert.alert_value = 0; // 0 = OFF
-                            int len = serialize_alert(&alert, buffer);
-                            send(app_sockfd, buffer, len, 0);
-                            cout << "[AUTO] Pump OFF (High Moisture) for Dev " << (int)deviceID << endl;
-                            sleep(1);
+                            alerts_to_send.push_back({app_sockfd, now, ALERT_WATERING_END, deviceID, 0});
                         }
                     }
                 }
-                else if (dev.soil_moisture < dev.Hmin)
-                {
-                    if (!dev.pump_on)
-                    {
-                        dev.pump_on = 1; // Bật bơm
+                else if (dev.soil_moisture < dev.Hmin) {
+                    if (!dev.pump_on) {
+                        dev.pump_on = 1;
                         if (app_sockfd != -1) {
-                            Alert alert{};
-                            alert.timestamp = now;
-                            alert.alert_code = ALERT_WATERING_START;
-                            alert.dev_id = deviceID;
-                            alert.alert_value = 1; // 1 = ON
-                            int len = serialize_alert(&alert, buffer);
-                            send(app_sockfd, buffer, len, 0);
-                            cout << "[AUTO] Pump ON (Low Moisture) for Dev " << (int)deviceID << endl;
-                            sleep(1);
+                            alerts_to_send.push_back({app_sockfd, now, ALERT_WATERING_START, deviceID, 1});
                         }
                     }
                 }
 
-                // =========================================================
                 // 5. AUTO FERTILIZER 
-                // =========================================================     
                 bool low_nutrient = (dev.N < dev.Nmin) || (dev.P < dev.Pmin) || (dev.K < dev.Kmin);
                 bool sufficient_nutrient = (dev.N >= dev.Nmin) && (dev.P >= dev.Pmin) && (dev.K >= dev.Kmin);
 
-                if (low_nutrient)
-                {
-
-                    if (!dev.fert_on)
-                    {
+                if (low_nutrient) {
+                    if (!dev.fert_on) {
                         dev.fert_on = 1;
                         if (app_sockfd != -1) {
-                            Alert alert{};
-                            alert.timestamp = now;
-                            alert.alert_code = ALERT_FERTILIZE_START;
-                            alert.dev_id = deviceID;
-                            alert.alert_value = 1; // 1 = ON
-                            int len = serialize_alert(&alert, buffer);
-                            send(app_sockfd, buffer, len, 0);
-                            cout << "[AUTO] Fertilizer ON (Low NPK) for Dev " << (int)deviceID << endl;
-                            sleep(1);
+                            alerts_to_send.push_back({app_sockfd, now, ALERT_FERTILIZE_START, deviceID, 1});
                         }
                     }
                 }
-                else if (sufficient_nutrient)
-                {
-                    if (dev.fert_on)
-                    {
+                else if (sufficient_nutrient) {
+                    if (dev.fert_on) {
                         dev.fert_on = 0;
                         if (app_sockfd != -1) {
-                            Alert alert{};
-                            alert.timestamp = now;
-                            alert.alert_code = ALERT_FERTILIZE_END;
-                            alert.dev_id = deviceID;
-                            alert.alert_value = 0; // 0 = OFF
-                            int len = serialize_alert(&alert, buffer);
-                            send(app_sockfd, buffer, len, 0);
-                            cout << "[AUTO] Fertilizer OFF (NPK OK) for Dev " << (int)deviceID << endl;
-                            sleep(1);
+                            alerts_to_send.push_back({app_sockfd, now, ALERT_FERTILIZE_END, deviceID, 0});
                         }
                     }
                 }
 
-            } 
+            } // Kết thúc vòng for
         } 
+        uint8_t buffer[MAX_BUFFER_SIZE];
 
+        // Gửi Interval Data
+        for (const auto &item : intervals_to_send) {
+            int len = serialize_interval_data(&item.data, buffer);
+            send_interval_data(item.sockfd, item.data); 
+            usleep(100000); // Sleep 0.1s cho nhẹ nhàng
+        }
 
-        sleep(50); 
+        // Gửi Alert Data
+        for (const auto &item : alerts_to_send) {
+            Alert alert{};
+            alert.timestamp = item.timestamp;
+            alert.alert_code = item.alert_code;
+            alert.dev_id = item.dev_id;
+            alert.alert_value = item.alert_value;
+            
+            int len = serialize_alert(&alert, buffer);
+            send(item.sockfd, buffer, len, 0);
+            
+            {
+                cout << "[AUTO] Alert sent to FD " << item.sockfd 
+                     << " Code=" << (int)item.alert_code 
+                     << " Dev=" << (int)item.dev_id << endl;
+            }
+            sleep(1); 
+        }
+
+        sleep(1); // Check mỗi giây
     }
 }
 
@@ -425,16 +419,20 @@ void handle_connect_request(int client_fd, const ConnectRequest &req, uint8_t *s
         App newApp;
         newApp.appID = req.appID;
         token = generate_unique_token();
-        newApp.token = token;
-        newApp.sockfd = client_fd;
-
         cout << "Assigned token: " << token << endl;
-
-        {
-            lock_guard<mutex> lock(apps_mutex);
-            apps.push_back(newApp);
+        App *app = findAppByAppID(req.appID);
+        if(app == nullptr){
+            newApp.token = token;
+            newApp.sockfd = client_fd;
+            {
+                lock_guard<mutex> lock(apps_mutex);
+                apps.push_back(newApp);
+            }
         }
-
+        else{
+            app->token = token;
+            app->sockfd = client_fd;
+        }
         packet_len = serialize_connect_response(token, send_buffer);
         print_buffer("Server send: Connect Response", send_buffer, packet_len);
         send(client_fd, send_buffer, packet_len, 0);
@@ -815,7 +813,7 @@ void handle_set_parameter(int client_fd, const SetParameter &req,
         DeviceSensor &dev = sensor_devices[req.dev_id];
         {
             lock_guard<mutex> lock(devices_mutex);
-            if(device_to_garden[req.garden_id] != req.garden_id){
+            if(device_to_garden[req.dev_id] != req.garden_id){
                 packet_len = serialize_cmd_response(STATUS_ERR_INVALID_DEVICE, send_buffer);
                 print_buffer("Server send: CMD_RESPONSE (Invalid Device)", send_buffer, packet_len);
                 send(client_fd, send_buffer, packet_len, 0);
@@ -1475,6 +1473,7 @@ void print_server_status() {
     cout << "======================================================\n\n";
     cout.flush();
 }
+
 int main()
 {
     srand(time(nullptr));
