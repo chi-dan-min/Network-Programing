@@ -1,0 +1,5 @@
+/mnt/c/Users/LG/Desktop/networkprograming/qt-client/build/CMakeFiles/ClientQt.dir
+/mnt/c/Users/LG/Desktop/networkprograming/qt-client/build/CMakeFiles/edit_cache.dir
+/mnt/c/Users/LG/Desktop/networkprograming/qt-client/build/CMakeFiles/rebuild_cache.dir
+/mnt/c/Users/LG/Desktop/networkprograming/qt-client/build/CMakeFiles/ClientQt_autogen_timestamp_deps.dir
+/mnt/c/Users/LG/Desktop/networkprograming/qt-client/build/CMakeFiles/ClientQt_autogen.dir

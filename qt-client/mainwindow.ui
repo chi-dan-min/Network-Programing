@@ -1,0 +1,773 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1000</width>
+    <height>700</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>IoT Garden Client</string>
+  </property>
+  
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    
+    <!-- Connection Section -->
+    <item>
+     <widget class="QGroupBox" name="groupConnection">
+      <property name="title">
+       <string>Connection</string>
+      </property>
+      <layout class="QHBoxLayout" name="connectionLayout">
+       <item>
+        <widget class="QLabel" name="labelServerIP">
+         <property name="text">
+          <string>Server IP:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="editServerIP">
+         <property name="text">
+          <string>127.0.0.1</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="labelUsername">
+         <property name="text">
+          <string>Username:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="editUsername"/>
+       </item>
+       <item>
+        <widget class="QLabel" name="labelPassword">
+         <property name="text">
+          <string>Password:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLineEdit" name="editPassword">
+         <property name="echoMode">
+          <enum>QLineEdit::Password</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btnConnectLogin">
+         <property name="text">
+          <string>Connect &amp; Login</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    
+    <!-- Main Tabs -->
+    <item>
+     <widget class="QTabWidget" name="tabWidget">
+      
+      <!-- Tab 1: Monitoring -->
+      <widget class="QWidget" name="tabMonitoring">
+       <attribute name="title">
+        <string>Monitoring</string>
+       </attribute>
+       <layout class="QHBoxLayout" name="monitoringLayout">
+        
+        <!-- Device List -->
+        <item>
+         <widget class="QGroupBox" name="groupDeviceList">
+          <property name="title">
+           <string>Devices</string>
+          </property>
+          <property name="maximumWidth">
+           <number>200</number>
+          </property>
+          <layout class="QVBoxLayout">
+           <item>
+            <widget class="QListWidget" name="deviceList"/>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btnRefreshDevices">
+             <property name="text">
+              <string>Refresh</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+        <!-- Device Details -->
+        <item>
+         <widget class="QGroupBox" name="groupDeviceDetails">
+          <property name="title">
+           <string>Device Details</string>
+          </property>
+          <layout class="QVBoxLayout">
+           
+           <!-- Sensor Data -->
+           <item>
+            <widget class="QGroupBox" name="groupSensorData">
+             <property name="title">
+              <string>Sensor Data</string>
+             </property>
+             <layout class="QFormLayout">
+              <item row="0" column="0">
+               <widget class="QLabel"><property name="text"><string>Humidity:</string></property></widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QLabel" name="lblHumidity"><property name="text"><string>--</string></property></widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel"><property name="text"><string>Nitrogen:</string></property></widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QLabel" name="lblNLevel"><property name="text"><string>--</string></property></widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel"><property name="text"><string>Phosphorus:</string></property></widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QLabel" name="lblPLevel"><property name="text"><string>--</string></property></widget>
+              </item>
+              <item row="3" column="0">
+               <widget class="QLabel"><property name="text"><string>Potassium:</string></property></widget>
+              </item>
+              <item row="3" column="1">
+               <widget class="QLabel" name="lblKLevel"><property name="text"><string>--</string></property></widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           
+           <!-- Direct Control Status -->
+           <item>
+            <widget class="QGroupBox" name="groupDirectStatus">
+             <property name="title">
+              <string>Direct Control Status</string>
+             </property>
+             <layout class="QFormLayout">
+              <item row="0" column="0">
+               <widget class="QLabel"><property name="text"><string>Pump:</string></property></widget>
+              </item>
+              <item row="0" column="1">
+               <widget class="QLabel" name="lblPumpStatus"><property name="text"><string>OFF</string></property></widget>
+              </item>
+              <item row="1" column="0">
+               <widget class="QLabel"><property name="text"><string>Light:</string></property></widget>
+              </item>
+              <item row="1" column="1">
+               <widget class="QLabel" name="lblLightStatus"><property name="text"><string>OFF</string></property></widget>
+              </item>
+              <item row="2" column="0">
+               <widget class="QLabel"><property name="text"><string>Fertilizer:</string></property></widget>
+              </item>
+              <item row="2" column="1">
+               <widget class="QLabel" name="lblFertStatus"><property name="text"><string>OFF</string></property></widget>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           
+           <!-- Schedules -->
+           <item>
+            <widget class="QGroupBox" name="groupSchedules">
+             <property name="title">
+              <string>Schedules</string>
+             </property>
+             <layout class="QHBoxLayout">
+              <item>
+               <layout class="QVBoxLayout">
+                <item>
+                 <widget class="QLabel"><property name="text"><string>Pump Times:</string></property></widget>
+                </item>
+                <item>
+                 <widget class="QListWidget" name="lstPumpSchedule"/>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <layout class="QVBoxLayout">
+                <item>
+                 <widget class="QLabel"><property name="text"><string>Light Schedule:</string></property></widget>
+                </item>
+                <item>
+                 <widget class="QListWidget" name="lstLightSchedule"/>
+                </item>
+               </layout>
+              </item>
+             </layout>
+            </widget>
+           </item>
+           
+          </layout>
+         </widget>
+        </item>
+        
+       </layout>
+      </widget>
+      
+      <!-- Tab 2: Control -->
+      <widget class="QWidget" name="tabControl">
+       <attribute name="title">
+        <string>Control</string>
+       </attribute>
+       <layout class="QVBoxLayout">
+        
+        <!-- Device Selection -->
+        <item>
+         <layout class="QHBoxLayout">
+          <item>
+           <widget class="QLabel">
+            <property name="text"><string>Device:</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="comboControlDevice"/>
+          </item>
+         </layout>
+        </item>
+        
+        <!-- Pump Schedule -->
+        <item>
+         <widget class="QGroupBox" name="groupPumpSchedule">
+          <property name="title">
+           <string>Pump Schedule</string>
+          </property>
+          <layout class="QHBoxLayout">
+           <item>
+            <widget class="QListWidget" name="lstPumpTimes"/>
+           </item>
+           <item>
+            <layout class="QVBoxLayout">
+             <item>
+              <widget class="QTimeEdit" name="timePump">
+               <property name="displayFormat">
+                <string>HH:mm</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnAddPumpTime">
+               <property name="text"><string>Add Time</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnRemovePumpTime">
+               <property name="text"><string>Remove Time</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnApplyPumpSchedule">
+               <property name="text"><string>Apply Schedule</string></property>
+              </widget>
+             </item>
+             <item>
+              <spacer><property name="orientation"><enum>Qt::Vertical</enum></property></spacer>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+        <!-- Light Schedule -->
+        <item>
+         <widget class="QGroupBox" name="groupLightSchedule">
+          <property name="title">
+           <string>Light Schedule</string>
+          </property>
+          <layout class="QHBoxLayout">
+           <item>
+            <widget class="QListWidget" name="lstLightPairs"/>
+           </item>
+           <item>
+            <layout class="QVBoxLayout">
+             <item>
+              <widget class="QLabel"><property name="text"><string>ON Time:</string></property></widget>
+             </item>
+             <item>
+              <widget class="QTimeEdit" name="timeLightOn">
+               <property name="displayFormat"><string>HH:mm</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel"><property name="text"><string>OFF Time:</string></property></widget>
+             </item>
+             <item>
+              <widget class="QTimeEdit" name="timeLightOff">
+               <property name="displayFormat"><string>HH:mm</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnAddLightPair">
+               <property name="text"><string>Add Pair</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnRemoveLightPair">
+               <property name="text"><string>Remove Pair</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btnApplyLightSchedule">
+               <property name="text"><string>Apply Schedule</string></property>
+              </widget>
+             </item>
+             <item>
+              <spacer><property name="orientation"><enum>Qt::Vertical</enum></property></spacer>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+        <!-- Direct Control -->
+        <item>
+         <widget class="QGroupBox" name="groupDirectControl">
+          <property name="title">
+           <string>Direct Control</string>
+          </property>
+          <layout class="QHBoxLayout">
+           <item>
+            <layout class="QVBoxLayout">
+             <item><widget class="QLabel"><property name="text"><string>Pump</string></property></widget></item>
+             <item><widget class="QPushButton" name="btnPumpOn"><property name="text"><string>ON</string></property></widget></item>
+             <item><widget class="QPushButton" name="btnPumpOff"><property name="text"><string>OFF</string></property></widget></item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QVBoxLayout">
+             <item><widget class="QLabel"><property name="text"><string>Light</string></property></widget></item>
+             <item><widget class="QPushButton" name="btnLightOn"><property name="text"><string>ON</string></property></widget></item>
+             <item><widget class="QPushButton" name="btnLightOff"><property name="text"><string>OFF</string></property></widget></item>
+            </layout>
+           </item>
+           <item>
+            <layout class="QVBoxLayout">
+             <item><widget class="QLabel"><property name="text"><string>Fertilizer</string></property></widget></item>
+             <item><widget class="QPushButton" name="btnFertOn"><property name="text"><string>ON</string></property></widget></item>
+             <item><widget class="QPushButton" name="btnFertOff"><property name="text"><string>OFF</string></property></widget></item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+       </layout>
+      </widget>
+      
+      <!-- Tab 3: Management -->
+      <widget class="QWidget" name="tabManagement">
+       <attribute name="title">
+        <string>Management</string>
+       </attribute>
+       <layout class="QHBoxLayout">
+        
+        <!-- Garden Management -->
+        <item>
+         <widget class="QGroupBox" name="groupGardenMgmt">
+          <property name="title">
+           <string>Garden Management</string>
+          </property>
+          <layout class="QVBoxLayout">
+           <item>
+            <layout class="QFormLayout">
+             <item row="0" column="0">
+              <widget class="QLabel"><property name="text"><string>Garden ID:</string></property></widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QSpinBox" name="spinAddGardenId">
+               <property name="minimum"><number>1</number></property>
+               <property name="maximum"><number>255</number></property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QPushButton" name="btnAddGarden">
+               <property name="text"><string>Add Garden</string></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="Line"><property name="orientation"><enum>Qt::Horizontal</enum></property></widget>
+           </item>
+           <item>
+            <layout class="QFormLayout">
+             <item row="0" column="0">
+              <widget class="QLabel"><property name="text"><string>Garden ID:</string></property></widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QSpinBox" name="spinDeleteGardenId">
+               <property name="minimum"><number>1</number></property>
+               <property name="maximum"><number>255</number></property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QPushButton" name="btnDeleteGarden">
+               <property name="text"><string>Delete Garden</string></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <spacer><property name="orientation"><enum>Qt::Vertical</enum></property></spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+        <!-- Device Management -->
+        <item>
+         <widget class="QGroupBox" name="groupDeviceMgmt">
+          <property name="title">
+           <string>Device Management</string>
+          </property>
+          <layout class="QVBoxLayout">
+           <item>
+            <layout class="QFormLayout">
+             <item row="0" column="0">
+              <widget class="QLabel"><property name="text"><string>Device ID:</string></property></widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QSpinBox" name="spinAddDeviceId">
+               <property name="minimum"><number>1</number></property>
+               <property name="maximum"><number>255</number></property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel"><property name="text"><string>Garden ID:</string></property></widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QSpinBox" name="spinAddDeviceGardenId">
+               <property name="minimum"><number>1</number></property>
+               <property name="maximum"><number>255</number></property>
+              </widget>
+             </item>
+             <item row="2" column="0">
+              <widget class="QLabel"><property name="text"><string>App ID:</string></property></widget>
+             </item>
+             <item row="2" column="1">
+              <widget class="QLineEdit" name="editAddDeviceAppId"/>
+             </item>
+             <item row="3" column="1">
+              <widget class="QPushButton" name="btnAddDevice">
+               <property name="text"><string>Add Device</string></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="Line"><property name="orientation"><enum>Qt::Horizontal</enum></property></widget>
+           </item>
+           <item>
+            <layout class="QFormLayout">
+             <item row="0" column="0">
+              <widget class="QLabel"><property name="text"><string>Device ID:</string></property></widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QSpinBox" name="spinDeleteDeviceId">
+               <property name="minimum"><number>1</number></property>
+               <property name="maximum"><number>255</number></property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QPushButton" name="btnDeleteDevice">
+               <property name="text"><string>Delete Device</string></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <spacer><property name="orientation"><enum>Qt::Vertical</enum></property></spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+       </layout>
+      </widget>
+      
+      <!-- Tab 4: Logs -->
+      <widget class="QWidget" name="tabLogs">
+       <attribute name="title">
+        <string>Logs</string>
+       </attribute>
+       <layout class="QVBoxLayout">
+        
+        <item>
+         <widget class="QGroupBox" name="groupDataLogs">
+          <property name="title">
+           <string>Data Logs</string>
+          </property>
+          <layout class="QVBoxLayout">
+           <item>
+            <widget class="QTableWidget" name="tableDataLogs">
+             <property name="columnCount">
+              <number>1</number>
+             </property>
+             <column>
+              <property name="text">
+               <string>Log Entry</string>
+              </property>
+             </column>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btnClearDataLogs">
+             <property name="text"><string>Clear</string></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+        <item>
+         <widget class="QGroupBox" name="groupAlertLogs">
+          <property name="title">
+           <string>Alert Logs</string>
+          </property>
+          <layout class="QVBoxLayout">
+           <item>
+            <widget class="QTableWidget" name="tableAlertLogs">
+             <property name="columnCount">
+              <number>1</number>
+             </property>
+             <column>
+              <property name="text">
+               <string>Log Entry</string>
+              </property>
+             </column>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btnClearAlertLogs">
+             <property name="text"><string>Clear</string></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+       </layout>
+      </widget>
+      
+      <!-- Tab 5: Settings -->
+      <widget class="QWidget" name="tabSettings">
+       <attribute name="title">
+        <string>Settings</string>
+       </attribute>
+       <layout class="QVBoxLayout">
+        
+        <!-- Device Selection -->
+        <item>
+         <layout class="QHBoxLayout">
+          <item>
+           <widget class="QLabel"><property name="text"><string>Device:</string></property></widget>
+          </item>
+          <item>
+           <widget class="QComboBox" name="comboSettingsDevice"/>
+          </item>
+         </layout>
+        </item>
+        
+        <!-- Set Parameters -->
+        <item>
+         <widget class="QGroupBox" name="groupSetParameters">
+          <property name="title">
+           <string>Device Parameters</string>
+          </property>
+          <layout class="QFormLayout">
+           <item row="0" column="0">
+            <widget class="QLabel"><property name="text"><string>Humidity Min:</string></property></widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QSpinBox" name="spinHmin">
+             <property name="maximum"><number>100</number></property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel"><property name="text"><string>Humidity Max:</string></property></widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QSpinBox" name="spinHmax">
+             <property name="maximum"><number>100</number></property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel"><property name="text"><string>N Min:</string></property></widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QSpinBox" name="spinNmin">
+             <property name="maximum"><number>255</number></property>
+            </widget>
+           </item>
+           <item row="3" column="0">
+            <widget class="QLabel"><property name="text"><string>P Min:</string></property></widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QSpinBox" name="spinPmin">
+             <property name="maximum"><number>255</number></property>
+            </widget>
+           </item>
+           <item row="4" column="0">
+            <widget class="QLabel"><property name="text"><string>K Min:</string></property></widget>
+           </item>
+           <item row="4" column="1">
+            <widget class="QSpinBox" name="spinKmin">
+             <property name="maximum"><number>255</number></property>
+            </widget>
+           </item>
+           <item row="5" column="0">
+            <widget class="QLabel"><property name="text"><string>Fert Concentration:</string></property></widget>
+           </item>
+           <item row="5" column="1">
+            <widget class="QSpinBox" name="spinFertC">
+             <property name="maximum"><number>255</number></property>
+            </widget>
+           </item>
+           <item row="6" column="0">
+            <widget class="QLabel"><property name="text"><string>Fert Volume:</string></property></widget>
+           </item>
+           <item row="6" column="1">
+            <widget class="QSpinBox" name="spinFertV">
+             <property name="maximum"><number>255</number></property>
+            </widget>
+           </item>
+           <item row="7" column="0">
+            <widget class="QLabel"><property name="text"><string>Power:</string></property></widget>
+           </item>
+           <item row="7" column="1">
+            <widget class="QSpinBox" name="spinPower">
+             <property name="maximum"><number>100</number></property>
+            </widget>
+           </item>
+           <item row="8" column="0">
+            <widget class="QLabel"><property name="text"><string>Interval (min):</string></property></widget>
+           </item>
+           <item row="8" column="1">
+            <widget class="QSpinBox" name="spinInterval">
+             <property name="maximum"><number>255</number></property>
+            </widget>
+           </item>
+           <item row="9" column="1">
+            <widget class="QPushButton" name="btnApplyParameters">
+             <property name="text"><string>Apply Parameters</string></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+        <!-- Change Password -->
+        <item>
+         <widget class="QGroupBox" name="groupChangePassword">
+          <property name="title">
+           <string>Change Password</string>
+          </property>
+          <layout class="QFormLayout">
+           <item row="0" column="0">
+            <widget class="QLabel"><property name="text"><string>App ID:</string></property></widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QLineEdit" name="editPasswordAppId"/>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel"><property name="text"><string>Old Password:</string></property></widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QLineEdit" name="editOldPassword">
+             <property name="echoMode"><enum>QLineEdit::Password</enum></property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel"><property name="text"><string>New Password:</string></property></widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QLineEdit" name="editNewPassword">
+             <property name="echoMode"><enum>QLineEdit::Password</enum></property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QPushButton" name="btnChangePassword">
+             <property name="text"><string>Change Password</string></property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        
+        <!-- View Device Config -->
+        <item>
+         <widget class="QPushButton" name="btnViewDeviceConfig">
+          <property name="text"><string>View Device Config</string></property>
+         </widget>
+        </item>
+        
+       </layout>
+      </widget>
+      
+     </widget>
+    </item>
+    
+    <!-- Packet Viewer -->
+    <item>
+     <widget class="QGroupBox" name="groupPacketViewer">
+      <property name="title">
+       <string>Packet Viewer (Debug)</string>
+      </property>
+      <property name="maximumHeight">
+       <number>200</number>
+      </property>
+      <layout class="QVBoxLayout">
+       <item>
+        <widget class="QTextEdit" name="packetView">
+         <property name="readOnly">
+          <bool>true</bool>
+         </property>
+         <property name="font">
+          <font>
+           <family>Courier New</family>
+           <pointsize>9</pointsize>
+          </font>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    
+    <!-- Log View -->
+    <item>
+     <widget class="QTextEdit" name="logView">
+      <property name="readOnly">
+       <bool>true</bool>
+      </property>
+      <property name="maximumHeight">
+       <number>150</number>
+      </property>
+     </widget>
+    </item>
+    
+   </layout>
+  </widget>
+  
+  <widget class="QMenuBar" name="menubar"/>
+  <widget class="QStatusBar" name="statusbar"/>
+  
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
