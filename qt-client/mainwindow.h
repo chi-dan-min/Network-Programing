@@ -64,8 +64,10 @@ private slots:
     void onDeviceAlert(uint8_t dev_id, QString alert);
 
 private:
+    void setupSettingsTab();
     void updateDeviceList();
     void updateDeviceDetails(uint8_t device_id);
+    void updateControlTabDeviceInfo(uint8_t device_id);
     void updateLogsDisplay();
     uint32_t timeEditToTimestamp(QTimeEdit* timeEdit);
     

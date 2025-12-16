@@ -4,6 +4,8 @@
 /CMakeCache.txt
 cmake_install.cmake
 Makefile
+/qt-server/server
+/qt-client/build/
 
 # Executables
 /server

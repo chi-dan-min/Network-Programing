@@ -56,12 +56,20 @@ void RecvThread::stop() {
 // ClientService implementation
 ClientService::ClientService(QObject *parent)
     : QObject(parent), sockfd(-1), token(0), recvThread(nullptr) {
+    initializePacketLogging();
     
     // Setup packet display callback
     packet_display_callback = [this](const char* title, const uint8_t* buffer, int len) {
+        // Get current timestamp
+        QString timestamp = QDateTime::currentDateTime().toString("HH:mm:ss.zzz");
+        
         QString direction = QString(title).contains("send", Qt::CaseInsensitive) ? "SEND" : "RECV";
         QString hexData = QString::fromStdString(format_packet_buffer(buffer, len));
-        QString fullMsg = QString("%1 (%2 bytes):\n%3").arg(title).arg(len).arg(hexData);
+        QString fullMsg = QString("[%1] %2 (%3 bytes):\n%4")
+                              .arg(timestamp)
+                              .arg(title)
+                              .arg(len)
+                              .arg(hexData);
         emit packetData(direction, fullMsg);
     };
 }
@@ -69,6 +77,63 @@ ClientService::ClientService(QObject *parent)
 ClientService::~ClientService() {
     disconnect();
 }
+
+// Packet Logging Implementation
+void ClientService::initializePacketLogging() {
+    // Enable user-facing messages by default
+    packetLoggingEnabled[MSG_TYPE_CONNECT_CLIENT] = true;
+    packetLoggingEnabled[MSG_TYPE_CONNECT_SERVER] = true;
+    packetLoggingEnabled[MSG_TYPE_SCAN_CLIENT] = true;
+    packetLoggingEnabled[MSG_TYPE_SCAN_SERVER] = true;
+    packetLoggingEnabled[MSG_TYPE_INFO_CLIENT] = true;
+    packetLoggingEnabled[MSG_TYPE_INFO_SERVER] = true;
+    packetLoggingEnabled[MSG_TYPE_DEVICE_DETAIL_CLIENT] = true;
+    packetLoggingEnabled[MSG_TYPE_DEVICE_DETAIL_SERVER] = true;
+    packetLoggingEnabled[MSG_TYPE_DATA] = true;
+    packetLoggingEnabled[MSG_TYPE_ALERT] = true;
+    
+    // Disable noisy messages by default
+    packetLoggingEnabled[MSG_TYPE_CHANGE_PASSWORD] = false;
+    packetLoggingEnabled[MSG_TYPE_SET_PARAMETER] = false;
+    packetLoggingEnabled[MSG_TYPE_SET_PUMP_SCHEDULE] = false;
+    packetLoggingEnabled[MSG_TYPE_SET_LIGHT_SCHEDULE] = false;
+    packetLoggingEnabled[MSG_TYPE_SET_DIRECT_PUMP] = false;
+    packetLoggingEnabled[MSG_TYPE_SET_DIRECT_LIGHT] = false;
+    packetLoggingEnabled[MSG_TYPE_SET_DIRECT_FERT] = false;
+    packetLoggingEnabled[MSG_TYPE_SETTINGS_CLIENT] = false;
+    packetLoggingEnabled[MSG_TYPE_SETTINGS_SERVER] = false;
+    packetLoggingEnabled[MSG_TYPE_GARDEN_ADD] = false;
+    packetLoggingEnabled[MSG_TYPE_GARDEN_DEL] = false;
+    packetLoggingEnabled[MSG_TYPE_DEVICE_ADD] = false;
+    packetLoggingEnabled[MSG_TYPE_DEVICE_DEL] = false;
+    packetLoggingEnabled[MSG_TYPE_CMD_RESPONSE] = false;
+}
+
+void ClientService::setPacketLoggingEnabled(uint8_t msg_type, bool enabled) {
+    packetLoggingEnabled[msg_type] = enabled;
+}
+
+bool ClientService::isPacketLoggingEnabled(uint8_t msg_type) const {
+    auto it = packetLoggingEnabled.find(msg_type);
+    return (it != packetLoggingEnabled.end()) ? it->second : true; // Default true if not found
+}
+
+void ClientService::enableAllPacketLogging() {
+    for (auto& pair : packetLoggingEnabled) {
+        pair.second = true;
+    }
+}
+
+void ClientService::disableAllPacketLogging() {
+    for (auto& pair : packetLoggingEnabled) {
+        pair.second = false;
+    }
+}
+
+void ClientService::resetPacketLoggingDefaults() {
+    initializePacketLogging();
+}
+
 
 bool ClientService::connectToServer(const QString& ip, uint16_t port) {
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -131,7 +196,7 @@ void ClientService::disconnect() {
 }
 
 bool ClientService::scan() {
-    if (!client_scan(sockfd, token, false)) {
+    if (!client_scan(sockfd, token, true)) {
         return false;
     }
     emit logMessage("Scan completed");
@@ -140,14 +205,27 @@ bool ClientService::scan() {
 }
 
 bool ClientService::info() {
-    if (!client_info(sockfd, token, false)) {
+    InfoResponse info_res;
+    memset(&info_res, 0, sizeof(info_res));
+    
+    if (!client_info(sockfd, token, true, &info_res)) {
         return false;
     }
     
     QMutexLocker locker(&dataMutex);
-    // Update current_gardens and current_devices from the response
-    // This requires parsing the INFO response - for now just signal update
-    emit logMessage("Info received");
+    current_gardens.clear();
+    current_devices.clear();
+    
+    for (int i = 0; i < info_res.num_gardens; ++i) {
+        const GardenInfo& garden = info_res.gardens[i];
+        current_gardens.push_back(garden.garden_id);
+        
+        for (int d = 0; d < garden.num_devices; ++d) {
+            current_devices.push_back(garden.devices[d].device_id);
+        }
+    }
+    
+    emit logMessage(QString("Info: %1 gardens, %2 devices").arg(info_res.num_gardens).arg(current_devices.size()));
     emit devicesUpdated();
     emit gardensUpdated();
     return true;
@@ -387,6 +465,22 @@ DirectState ClientService::getDirectState(uint8_t device_id) const {
     return DirectState{};
 }
 
+DeviceDetailResponse ClientService::getDeviceDetail(uint8_t device_id) {
+    DeviceDetailResponse detail;
+    memset(&detail, 0, sizeof(detail));
+    
+    if (!client_get_device_detail(sockfd, token, device_id, &detail, true)) {  // log=true to show packets
+        emit errorMessage(QString("Failed to get device detail for Device %1").arg(device_id));
+        return detail;
+    }
+    
+    // Log success
+    emit logMessage(QString("Device %1 detail loaded successfully").arg(device_id));
+    
+    return detail;
+}
+
+
 void ClientService::onDataReceived(uint8_t dev_id, IntervalData data) {
     QMutexLocker locker(&dataMutex);
     last_interval_data[dev_id] = data;
@@ -402,7 +496,11 @@ void ClientService::onDataReceived(uint8_t dev_id, IntervalData data) {
     
     locker.unlock();
     emit deviceDataUpdated(dev_id);
-    emit logMessage(QString::fromStdString(oss.str()));
+    
+    // Only log if setting is enabled
+    if (showIntervalData) {
+        emit logMessage(QString::fromStdString(oss.str()));
+    }
 }
 
 void ClientService::onAlertReceived(uint8_t dev_id, Alert alert) {
@@ -450,7 +548,11 @@ void ClientService::onAlertReceived(uint8_t dev_id, Alert alert) {
     
     locker.unlock();
     emit deviceAlertReceived(dev_id, alert_str);
-    emit logMessage(QString::fromStdString(oss.str()));
+    
+    // Only log if setting is enabled
+    if (showAlerts) {
+        emit logMessage(QString::fromStdString(oss.str()));
+    }
 }
 
 void ClientService::onConnectionLost() {

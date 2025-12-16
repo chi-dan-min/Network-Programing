@@ -47,13 +47,15 @@ std::string format_packet_buffer(const uint8_t *buffer, int len);
 bool send_simple_request(int sockfd, uint8_t* buffer, int len, const char* action_name);
 bool client_login(int sockfd, uint32_t &token, const std::string& appID, const std::string& password);
 bool client_scan(int sockfd, uint32_t token, bool log = true);
-bool client_info(int sockfd, uint32_t token, bool log = true);
+bool client_info(int sockfd, uint32_t token, bool log = true, InfoResponse* out_info = nullptr);
 bool client_add_garden(int sockfd, uint32_t token);
 bool client_delete_garden(int sockfd, uint32_t token);
 bool client_add_device(int sockfd, uint32_t token);
 bool client_delete_device(int sockfd, uint32_t token);
 bool client_set_parameter(int sockfd, uint32_t token);
 bool client_get_device_params(int sockfd, uint32_t token, uint8_t device_id, bool log = true);
+bool client_get_device_detail(int sockfd, uint32_t token, uint8_t device_id, 
+                               DeviceDetailResponse* out_detail, bool log = true);
 bool client_change_password(int sockfd, uint32_t token);
 bool client_set_pump_schedule(int sockfd, uint32_t token);
 bool client_set_light_schedule(int sockfd, uint32_t token);

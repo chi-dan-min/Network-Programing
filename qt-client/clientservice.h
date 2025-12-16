@@ -86,8 +86,16 @@ public:
     IntervalData getLastIntervalData(uint8_t device_id) const;
     DeviceSchedules getSchedules(uint8_t device_id) const;
     DirectState getDirectState(uint8_t device_id) const;
+    DeviceDetailResponse getDeviceDetail(uint8_t device_id);
     bool isConnected() const { return sockfd >= 0 && token > 0; }
     uint32_t getToken() const { return token; }
+    
+    // Packet Logging Controls (granular per message type)
+    void setPacketLoggingEnabled(uint8_t msg_type, bool enabled);
+    bool isPacketLoggingEnabled(uint8_t msg_type) const;
+    void enableAllPacketLogging();
+    void disableAllPacketLogging();
+    void resetPacketLoggingDefaults();
 
 signals:
     void logMessage(QString msg);
@@ -125,6 +133,14 @@ private:
     std::unordered_map<uint8_t, DirectState> direct_state_map;
     std::vector<std::string> data_logs;
     std::vector<std::string> alert_logs;
+    
+    // Packet logging control - granular per message type
+    std::unordered_map<uint8_t, bool> packetLoggingEnabled;
+    void initializePacketLogging();
+    
+    // Control display of interval data and alerts in log
+    bool showIntervalData = true;
+    bool showAlerts = true;
 };
 
 #endif

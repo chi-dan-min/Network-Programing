@@ -200,9 +200,12 @@ public:
     QLineEdit *editNewPassword;
     QPushButton *btnChangePassword;
     QPushButton *btnViewDeviceConfig;
+    QHBoxLayout *hboxLayout7;
     QGroupBox *groupPacketViewer;
     QVBoxLayout *vboxLayout16;
     QTextEdit *packetView;
+    QGroupBox *groupLogView;
+    QVBoxLayout *vboxLayout17;
     QTextEdit *logView;
     QMenuBar *menubar;
     QStatusBar *statusbar;
@@ -211,7 +214,7 @@ public:
     {
         if (MainWindow->objectName().isEmpty())
             MainWindow->setObjectName("MainWindow");
-        MainWindow->resize(1000, 700);
+        MainWindow->resize(1000, 800);
         centralwidget = new QWidget(MainWindow);
         centralwidget->setObjectName("centralwidget");
         verticalLayout = new QVBoxLayout(centralwidget);
@@ -261,6 +264,7 @@ public:
 
         tabWidget = new QTabWidget(centralwidget);
         tabWidget->setObjectName("tabWidget");
+        tabWidget->setMaximumHeight(600);
         tabMonitoring = new QWidget();
         tabMonitoring->setObjectName("tabMonitoring");
         monitoringLayout = new QHBoxLayout(tabMonitoring);
@@ -979,9 +983,11 @@ public:
 
         verticalLayout->addWidget(tabWidget);
 
+        hboxLayout7 = new QHBoxLayout();
+        hboxLayout7->setObjectName("hboxLayout7");
         groupPacketViewer = new QGroupBox(centralwidget);
         groupPacketViewer->setObjectName("groupPacketViewer");
-        groupPacketViewer->setMaximumHeight(200);
+        groupPacketViewer->setMaximumHeight(500);
         vboxLayout16 = new QVBoxLayout(groupPacketViewer);
         vboxLayout16->setObjectName("vboxLayout16");
         packetView = new QTextEdit(groupPacketViewer);
@@ -995,14 +1001,24 @@ public:
         vboxLayout16->addWidget(packetView);
 
 
-        verticalLayout->addWidget(groupPacketViewer);
+        hboxLayout7->addWidget(groupPacketViewer);
 
-        logView = new QTextEdit(centralwidget);
+        groupLogView = new QGroupBox(centralwidget);
+        groupLogView->setObjectName("groupLogView");
+        groupLogView->setMaximumHeight(500);
+        vboxLayout17 = new QVBoxLayout(groupLogView);
+        vboxLayout17->setObjectName("vboxLayout17");
+        logView = new QTextEdit(groupLogView);
         logView->setObjectName("logView");
         logView->setReadOnly(true);
-        logView->setMaximumHeight(150);
 
-        verticalLayout->addWidget(logView);
+        vboxLayout17->addWidget(logView);
+
+
+        hboxLayout7->addWidget(groupLogView);
+
+
+        verticalLayout->addLayout(hboxLayout7);
 
         MainWindow->setCentralWidget(centralwidget);
         menubar = new QMenuBar(MainWindow);
@@ -1116,6 +1132,7 @@ public:
         btnViewDeviceConfig->setText(QCoreApplication::translate("MainWindow", "View Device Config", nullptr));
         tabWidget->setTabText(tabWidget->indexOf(tabSettings), QCoreApplication::translate("MainWindow", "Settings", nullptr));
         groupPacketViewer->setTitle(QCoreApplication::translate("MainWindow", "Packet Viewer (Debug)", nullptr));
+        groupLogView->setTitle(QCoreApplication::translate("MainWindow", "Application Logs", nullptr));
     } // retranslateUi
 
 };

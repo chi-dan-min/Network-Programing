@@ -864,6 +864,21 @@ int deserialize_packet(const uint8_t *in_buffer, int buffer_len, ParsedPacket *o
         out_packet->data.setting_response.Kmin   = payload[8];
         break;
     }
+
+    //------------------------------
+    // 32 - Device Detail Request
+    //------------------------------
+    case MSG_TYPE_DEVICE_DETAIL_CLIENT:
+    {
+        if (payload_len != 5) return -1; // token(4) + device_id(1)
+        
+        uint32_t net_token;
+        memcpy(&net_token, payload, 4);
+        out_packet->data.device_detail_req.token = ntohl(net_token);
+        out_packet->data.device_detail_req.device_id = payload[4];
+        break;
+    }
+
     //------------------------------
     // Unknown type
     //------------------------------

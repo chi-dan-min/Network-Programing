@@ -2,6 +2,14 @@
 #include "ui_mainwindow.h"
 #include <QMessageBox>
 #include <QDateTime>
+#include <QtConcurrent>
+#include <QTimer>
+#include <QCheckBox>
+#include <QGroupBox>
+#include <QPushButton>
+#include <QVBoxLayout>
+#include <QScrollArea>
+#include <thread>
 #include <sstream>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -32,6 +40,18 @@ MainWindow::MainWindow(QWidget *parent)
         ui->packetView->append(""); // Empty line for spacing
     });
 
+    // Connect Control tab device selector
+    connect(ui->comboControlDevice, QOverload<int>::of(&QComboBox::currentIndexChanged), 
+            this, [this](int index) {
+        if (index >= 0 && client->isConnected()) {
+            uint8_t dev_id = ui->comboControlDevice->currentData().toUInt();
+            updateControlTabDeviceInfo(dev_id);
+        }
+    });
+
+    // Setup Settings Tab
+    setupSettingsTab();
+
     // Hide main tabs until logged in
     ui->tabWidget->setEnabled(false);
 }
@@ -39,6 +59,254 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow() {
     delete ui;
 }
+
+// ===== Settings Tab Setup =====
+void MainWindow::setupSettingsTab() {
+    // Create settings tab widget
+    QWidget* settingsTab = new QWidget();
+    ui->tabWidget->addTab(settingsTab, "Packet Logging");
+    
+    // Main scroll area
+    QScrollArea* scrollArea = new QScrollArea();
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    
+    QWidget* scrollContents = new QWidget();
+    QVBoxLayout* mainLayout = new QVBoxLayout(scrollContents);
+    mainLayout->setContentsMargins(15, 15, 15, 15);
+    mainLayout->setSpacing(12);
+    
+    // === Authentication & Session ===
+    QGroupBox* groupAuth = new QGroupBox("Authentication & Session");
+    QVBoxLayout* authLayout = new QVBoxLayout();
+    
+    QCheckBox* chkConnect = new QCheckBox("Connect/Login Messages (0x0A/0x0B)");
+    chkConnect->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_CONNECT_CLIENT));
+    connect(chkConnect, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_CONNECT_CLIENT, checked);
+        client->setPacketLoggingEnabled(MSG_TYPE_CONNECT_SERVER, checked);
+    });
+    
+    QCheckBox* chkPassword = new QCheckBox("Change Password (0x0C)");
+    chkPassword->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_CHANGE_PASSWORD));
+    connect(chkPassword, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_CHANGE_PASSWORD, checked);
+    });
+    
+    authLayout->addWidget(chkConnect);
+    authLayout->addWidget(chkPassword);
+    groupAuth->setLayout(authLayout);
+    
+    // === Device Discovery & Info ===
+    QGroupBox* groupInfo = new QGroupBox("Device Discovery & Info");
+    QVBoxLayout* infoLayout = new QVBoxLayout();
+    
+    QCheckBox* chkScan = new QCheckBox("Scan Devices (0x14/0x15)");
+    chkScan->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_SCAN_CLIENT));
+    connect(chkScan, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_SCAN_CLIENT, checked);
+        client->setPacketLoggingEnabled(MSG_TYPE_SCAN_SERVER, checked);
+    });
+    
+    QCheckBox* chkInfo = new QCheckBox("Info Request/Response (0x1E/0x1F)");
+    chkInfo->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_INFO_CLIENT));
+    connect(chkInfo, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_INFO_CLIENT, checked);
+        client->setPacketLoggingEnabled(MSG_TYPE_INFO_SERVER, checked);
+    });
+    
+    QCheckBox* chkDetail = new QCheckBox("Device Detail (0x20/0x21)");
+    chkDetail->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_DEVICE_DETAIL_CLIENT));
+    connect(chkDetail, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_DEVICE_DETAIL_CLIENT, checked);
+        client->setPacketLoggingEnabled(MSG_TYPE_DEVICE_DETAIL_SERVER, checked);
+    });
+    
+    infoLayout->addWidget(chkScan);
+    infoLayout->addWidget(chkInfo);
+    infoLayout->addWidget(chkDetail);
+    groupInfo->setLayout(infoLayout);
+    
+    // === Device Control ===
+    QGroupBox* groupControl = new QGroupBox("Device Control");
+    QVBoxLayout* controlLayout = new QVBoxLayout();
+    
+    QCheckBox* chkSetParam = new QCheckBox("Set Parameters (0x28)");
+    chkSetParam->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_SET_PARAMETER));
+    connect(chkSetParam, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_SET_PARAMETER, checked);
+    });
+    
+    QCheckBox* chkPumpSched = new QCheckBox("Pump Schedule (0x32)");
+    chkPumpSched->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_SET_PUMP_SCHEDULE));
+    connect(chkPumpSched, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_SET_PUMP_SCHEDULE, checked);
+    });
+    
+    QCheckBox* chkLightSched = new QCheckBox("Light Schedule (0x33)");
+    chkLightSched->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_SET_LIGHT_SCHEDULE));
+    connect(chkLightSched, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_SET_LIGHT_SCHEDULE, checked);
+    });
+    
+    QCheckBox* chkDirectPump = new QCheckBox("Direct Pump Control (0x3C)");
+    chkDirectPump->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_SET_DIRECT_PUMP));
+    connect(chkDirectPump, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_SET_DIRECT_PUMP, checked);
+    });
+    
+    QCheckBox* chkDirectLight = new QCheckBox("Direct Light Control (0x3D)");
+    chkDirectLight->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_SET_DIRECT_LIGHT));
+    connect(chkDirectLight, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_SET_DIRECT_LIGHT, checked);
+    });
+    
+    QCheckBox* chkDirectFert = new QCheckBox("Direct Fertilizer Control (0x3E)");
+    chkDirectFert->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_SET_DIRECT_FERT));
+    connect(chkDirectFert, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_SET_DIRECT_FERT, checked);
+    });
+    
+    QCheckBox* chkSettings = new QCheckBox("Settings Request/Response (0x66/0x67)");
+    chkSettings->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_SETTINGS_CLIENT));
+    connect(chkSettings, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_SETTINGS_CLIENT, checked);
+        client->setPacketLoggingEnabled(MSG_TYPE_SETTINGS_SERVER, checked);
+    });
+    
+    controlLayout->addWidget(chkSetParam);
+    controlLayout->addWidget(chkPumpSched);
+    controlLayout->addWidget(chkLightSched);
+    controlLayout->addWidget(chkDirectPump);
+    controlLayout->addWidget(chkDirectLight);
+    controlLayout->addWidget(chkDirectFert);
+    controlLayout->addWidget(chkSettings);
+    groupControl->setLayout(controlLayout);
+    
+    // === Garden & Device Management ===
+    QGroupBox* groupMgmt = new QGroupBox("Garden & Device Management");
+    QVBoxLayout* mgmtLayout = new QVBoxLayout();
+    
+    QCheckBox* chkGardenAdd = new QCheckBox("Add Garden (0x50)");
+    chkGardenAdd->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_GARDEN_ADD));
+    connect(chkGardenAdd, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_GARDEN_ADD, checked);
+    });
+    
+    QCheckBox* chkGardenDel = new QCheckBox("Delete Garden (0x51)");
+    chkGardenDel->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_GARDEN_DEL));
+    connect(chkGardenDel, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_GARDEN_DEL, checked);
+    });
+    
+    QCheckBox* chkDeviceAdd = new QCheckBox("Add Device (0x5A)");
+    chkDeviceAdd->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_DEVICE_ADD));
+    connect(chkDeviceAdd, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_DEVICE_ADD, checked);
+    });
+    
+    QCheckBox* chkDeviceDel = new QCheckBox("Delete Device (0x5B)");
+    chkDeviceDel->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_DEVICE_DEL));
+    connect(chkDeviceDel, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_DEVICE_DEL, checked);
+    });
+    
+    mgmtLayout->addWidget(chkGardenAdd);
+    mgmtLayout->addWidget(chkGardenDel);
+    mgmtLayout->addWidget(chkDeviceAdd);
+    mgmtLayout->addWidget(chkDeviceDel);
+    groupMgmt->setLayout(mgmtLayout);
+    
+    // === Real-time Data ===
+    QGroupBox* groupData = new QGroupBox("Real-time Data");
+    QVBoxLayout* dataLayout = new QVBoxLayout();
+    
+    QCheckBox* chkIntervalData = new QCheckBox("Interval Data (0x64)");
+    chkIntervalData->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_DATA));
+    connect(chkIntervalData, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_DATA, checked);
+    });
+    
+    QCheckBox* chkAlerts = new QCheckBox("Alerts (0xC8)");
+    chkAlerts->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_ALERT));
+    connect(chkAlerts, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_ALERT, checked);
+    });
+    
+    dataLayout->addWidget(chkIntervalData);
+    dataLayout->addWidget(chkAlerts);
+    groupData->setLayout(dataLayout);
+    
+    // === System Responses ===
+    QGroupBox* groupSystem = new QGroupBox("System Responses");
+    QVBoxLayout* systemLayout = new QVBoxLayout();
+    
+    QCheckBox* chkCmdResponse = new QCheckBox("Command Responses (0xFE)");
+    chkCmdResponse->setChecked(client->isPacketLoggingEnabled(MSG_TYPE_CMD_RESPONSE));
+    connect(chkCmdResponse, &QCheckBox::toggled, [this](bool checked) {
+        client->setPacketLoggingEnabled(MSG_TYPE_CMD_RESPONSE, checked);
+    });
+    
+    systemLayout->addWidget(chkCmdResponse);
+    groupSystem->setLayout(systemLayout);
+    
+    // === Quick Actions ===
+    QGroupBox* groupActions = new QGroupBox("Quick Actions");
+    QHBoxLayout* actionsLayout = new QHBoxLayout();
+    
+    QPushButton* btnEnableAll = new QPushButton(" Enable All");
+    btnEnableAll->setMinimumHeight(35);
+    connect(btnEnableAll, &QPushButton::clicked, [this]() {
+        client->enableAllPacketLogging();
+        ui->logView->append("All packet logging enabled");
+        // Note: checkboxes won't auto-update, would need to re-create tab or store refs
+    });
+    
+    QPushButton* btnDisableAll = new QPushButton("Disable All");
+    btnDisableAll->setMinimumHeight(35);
+    connect(btnDisableAll, &QPushButton::clicked, [this]() {
+        client->disableAllPacketLogging();
+        ui->logView->append("All packet logging disabled");
+    });
+    
+    QPushButton* btnReset = new QPushButton("Reset Defaults");
+    btnReset->setMinimumHeight(35);
+    connect(btnReset, &QPushButton::clicked, [this]() {
+        client->resetPacketLoggingDefaults();
+        ui->logView->append("Packet logging reset to defaults");
+    });
+    
+    QPushButton* btnClearLogs = new QPushButton("Clear Logs");
+    btnClearLogs->setMinimumHeight(35);
+    connect(btnClearLogs, &QPushButton::clicked, [this]() {
+        ui->logView->clear();
+        ui->packetView->clear();
+        ui->logView->append("All logs cleared");
+    });
+    
+    actionsLayout->addWidget(btnEnableAll);
+    actionsLayout->addWidget(btnDisableAll);
+    actionsLayout->addWidget(btnReset);
+    actionsLayout->addWidget(btnClearLogs);
+    groupActions->setLayout(actionsLayout);
+    
+    // Add all groups to main layout
+    mainLayout->addWidget(groupAuth);
+    mainLayout->addWidget(groupInfo);
+    mainLayout->addWidget(groupControl);
+    mainLayout->addWidget(groupMgmt);
+    mainLayout->addWidget(groupData);
+    mainLayout->addWidget(groupSystem);
+    mainLayout->addWidget(groupActions);
+    mainLayout->addStretch();
+    
+    scrollArea->setWidget(scrollContents);
+    
+    QVBoxLayout* tabLayout = new QVBoxLayout(settingsTab);
+    tabLayout->setContentsMargins(0, 0, 0, 0);
+    tabLayout->addWidget(scrollArea);
+}
+
 
 // ===== Connection & Login =====
 void MainWindow::on_btnConnectLogin_clicked() {
@@ -65,9 +333,11 @@ void MainWindow::on_btnConnectLogin_clicked() {
         return;
     }
 
-    // Initial scan and info
-    client->scan();
-    client->info();
+    // Initial scan and info - use std::thread to avoid blocking UI
+    std::thread([this]() {
+        client->scan();
+        client->info();
+    }).detach();
 }
 
 void MainWindow::onConnected() {
@@ -83,9 +353,21 @@ void MainWindow::onLoginSuccess() {
 
 // ===== Monitoring Tab =====
 void MainWindow::on_btnRefreshDevices_clicked() {
-    client->scan();
-    client->info();
-    updateDeviceList();
+    ui->logView->append("Refreshing...");
+    ui->btnRefreshDevices->setEnabled(false);
+    
+    // Use std::thread for TRUE background execution (not on main thread)
+    std::thread([this]() {
+        client->scan();
+        client->info();
+        updateDeviceList();
+        
+        // Update UI on main thread
+        QMetaObject::invokeMethod(this, [this]() {
+            ui->btnRefreshDevices->setEnabled(true);
+            ui->logView->append("Refresh complete");
+        }, Qt::QueuedConnection);
+    }).detach();
 }
 
 void MainWindow::on_deviceList_currentRowChanged(int row) {
@@ -117,57 +399,126 @@ void MainWindow::updateDeviceList() {
     
     if (!devices.empty()) {
         ui->deviceList->setCurrentRow(0);
+        
+        // Load initial data for first device in Control tab
+        uint8_t first_dev = devices[0];
+        updateControlTabDeviceInfo(first_dev);
     }
 }
 
 void MainWindow::updateDeviceDetails(uint8_t device_id) {
-    IntervalData data = client->getLastIntervalData(device_id);
-    DirectState state = client->getDirectState(device_id);
-    DeviceSchedules schedules = client->getSchedules(device_id);
+    // Get comprehensive device detail from server
+    DeviceDetailResponse detail = client->getDeviceDetail(device_id);
     
-    // Update sensor data labels
-    ui->lblHumidity->setText(QString::number(data.humidity) + "%");
-    ui->lblNLevel->setText(QString::number(data.n_level));
-    ui->lblPLevel->setText(QString::number(data.p_level));
-    ui->lblKLevel->setText(QString::number(data.k_level));
+    // Update sensor data labels using device detail
+    ui->lblHumidity->setText(detail.soil_moisture == SENSOR_NA_VALUE ? 
+                                  "N/A" : QString::number(detail.soil_moisture) + "%");
+    ui->lblNLevel->setText(detail.npk_n == SENSOR_NA_VALUE ? 
+                          "N/A" : QString::number(detail.npk_n));
+    ui->lblPLevel->setText(detail.npk_p == SENSOR_NA_VALUE ? 
+                          "N/A" : QString::number(detail.npk_p));
+    ui->lblKLevel->setText(detail.npk_k == SENSOR_NA_VALUE ? 
+                          "N/A" : QString::number(detail.npk_k));
+    
+    // Update config labels (if you have them in UI)
+    // ui->lblFertConc->setText(QString::number(detail.fert_concentration) + " g/L");
+    // ui->lblFertVol->setText(QString::number(detail.fert_volume) + " L");
+    // ui->lblPowerLamp->setText(QString::number(detail.power_lamp) + "%");
+    // ui->lblIntervalTime->setText(QString::number(detail.interval_time) + " mins");
+    
+    // Update threshold labels (if you have them in UI)
+    // ui->lblHumidityRange->setText(QString("%1% - %2%").arg(detail.humidity_min).arg(detail.humidity_max));
     
     // Update direct control status
-    ui->lblPumpStatus->setText(state.pump ? "ON" : "OFF");
-    ui->lblLightStatus->setText(state.light ? "ON" : "OFF");
-    ui->lblFertStatus->setText(state.fert ? "ON" : "OFF");
+    ui->lblPumpStatus->setText(detail.direct_pump ? "ON" : "OFF");
+    ui->lblLightStatus->setText(detail.direct_light ? "ON" : "OFF");
+    ui->lblFertStatus->setText(detail.direct_fert ? "ON" : "OFF");
     
-    // Update schedules display
+    // Update pump schedule list
     ui->lstPumpSchedule->clear();
-    for (uint32_t ts : schedules.pump_times) {
-        QDateTime dt = QDateTime::fromSecsSinceEpoch(ts);
+    for (int i = 0; i < detail.num_water_times; i++) {
+        QDateTime dt = QDateTime::fromSecsSinceEpoch(detail.water_times[i]);
         ui->lstPumpSchedule->addItem(dt.toString("HH:mm"));
     }
     
+    // Update light schedule list
     ui->lstLightSchedule->clear();
-    for (const auto& pair : schedules.light_pairs) {
-        QDateTime on = QDateTime::fromSecsSinceEpoch(pair.first);
-        QDateTime off = QDateTime::fromSecsSinceEpoch(pair.second);
+    for (int i = 0; i < detail.num_light_schedules; i++) {
+        QDateTime on = QDateTime::fromSecsSinceEpoch(detail.light_on_times[i]);
+        QDateTime off = QDateTime::fromSecsSinceEpoch(detail.light_off_times[i]);
         ui->lstLightSchedule->addItem(QString("ON: %1 | OFF: %2")
-                                     .arg(on.toString("HH:mm"))
-                                     .arg(off.toString("HH:mm")));
+                                       .arg(on.toString("HH:mm"))
+                                       .arg(off.toString("HH:mm")));
     }
 }
+
+void MainWindow::updateControlTabDeviceInfo(uint8_t device_id) {
+    // Get device detail from server
+    DeviceDetailResponse detail = client->getDeviceDetail(device_id);
+    
+    // Fill current pump schedule from server into Control tab (for editing)
+    ui->lstPumpTimes->clear();
+    for (int i = 0; i < detail.num_water_times; i++) {
+        QDateTime dt = QDateTime::fromSecsSinceEpoch(detail.water_times[i]);
+        ui->lstPumpTimes->addItem(dt.toString("HH:mm"));
+    }
+    
+    // Fill current light schedule from server into Control tab (for editing)
+    ui->lstLightPairs->clear();
+    for (int i = 0; i < detail.num_light_schedules; i++) {
+        QDateTime on = QDateTime::fromSecsSinceEpoch(detail.light_on_times[i]);
+        QDateTime off = QDateTime::fromSecsSinceEpoch(detail.light_off_times[i]);
+        ui->lstLightPairs->addItem(QString("ON: %1 | OFF: %2")
+                                   .arg(on.toString("HH:mm"))
+                                   .arg(off.toString("HH:mm")));
+    }
+    
+    // Update direct control button states with highlighting
+    // Pump buttons
+    if (detail.direct_pump) {
+        ui->btnPumpOn->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }");
+        ui->btnPumpOff->setStyleSheet("");
+    } else {
+        ui->btnPumpOn->setStyleSheet("");
+        ui->btnPumpOff->setStyleSheet("QPushButton { background-color: #f44336; color: white; font-weight: bold; }");
+    }
+    
+    // Light buttons
+    if (detail.direct_light) {
+        ui->btnLightOn->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }");
+        ui->btnLightOff->setStyleSheet("");
+    } else {
+        ui->btnLightOn->setStyleSheet("");
+        ui->btnLightOff->setStyleSheet("QPushButton { background-color: #f44336; color: white; font-weight: bold; }");
+    }
+    
+    // Fertilizer buttons
+    if (detail.direct_fert) {
+        ui->btnFertOn->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-weight: bold; }");
+        ui->btnFertOff->setStyleSheet("");
+    } else {
+        ui->btnFertOn->setStyleSheet("");
+        ui->btnFertOff->setStyleSheet("QPushButton { background-color: #f44336; color: white; font-weight: bold; }");
+    }
+}
+
+
 
 void MainWindow::onDevicesUpdated() {
     updateDeviceList();
 }
 
 void MainWindow::onDeviceDataUpdated(uint8_t dev_id) {
-    if (dev_id == currentDeviceId) {
-        updateDeviceDetails(dev_id);
-    }
+    // if (dev_id == currentDeviceId) {
+    //     updateDeviceDetails(dev_id);
+    // }
     updateLogsDisplay();
 }
 
 void MainWindow::onDeviceAlert(uint8_t dev_id, QString alert) {
-    if (dev_id == currentDeviceId) {
-        updateDeviceDetails(dev_id);
-    }
+    // if (dev_id == currentDeviceId) {
+    //     updateDeviceDetails(dev_id);
+    // }
     updateLogsDisplay();
 }
 
@@ -260,7 +611,12 @@ void MainWindow::on_btnPumpOn_clicked() {
     int devIdx = ui->comboControlDevice->currentIndex();
     if (devIdx >= 0) {
         uint8_t dev_id = ui->comboControlDevice->currentData().toUInt();
-        client->setDirectPump(dev_id, true);
+        if (client->setDirectPump(dev_id, true)) {
+            // Refresh device info to update button highlighting
+            QTimer::singleShot(200, [this, dev_id]() {
+                updateControlTabDeviceInfo(dev_id);
+            });
+        }
     }
 }
 
@@ -268,7 +624,12 @@ void MainWindow::on_btnPumpOff_clicked() {
     int devIdx = ui->comboControlDevice->currentIndex();
     if (devIdx >= 0) {
         uint8_t dev_id = ui->comboControlDevice->currentData().toUInt();
-        client->setDirectPump(dev_id, false);
+        if (client->setDirectPump(dev_id, false)) {
+            // Refresh device info to update button highlighting
+            QTimer::singleShot(200, [this, dev_id]() {
+                updateControlTabDeviceInfo(dev_id);
+            });
+        }
     }
 }
 
@@ -276,7 +637,12 @@ void MainWindow::on_btnLightOn_clicked() {
     int devIdx = ui->comboControlDevice->currentIndex();
     if (devIdx >= 0) {
         uint8_t dev_id = ui->comboControlDevice->currentData().toUInt();
-        client->setDirectLight(dev_id, true);
+        if (client->setDirectLight(dev_id, true)) {
+            // Refresh device info to update button highlighting
+            QTimer::singleShot(200, [this, dev_id]() {
+                updateControlTabDeviceInfo(dev_id);
+            });
+        }
     }
 }
 
@@ -284,7 +650,12 @@ void MainWindow::on_btnLightOff_clicked() {
     int devIdx = ui->comboControlDevice->currentIndex();
     if (devIdx >= 0) {
         uint8_t dev_id = ui->comboControlDevice->currentData().toUInt();
-        client->setDirectLight(dev_id, false);
+        if (client->setDirectLight(dev_id, false)) {
+            // Refresh device info to update button highlighting
+            QTimer::singleShot(200, [this, dev_id]() {
+                updateControlTabDeviceInfo(dev_id);
+            });
+        }
     }
 }
 
@@ -292,7 +663,12 @@ void MainWindow::on_btnFertOn_clicked() {
     int devIdx = ui->comboControlDevice->currentIndex();
     if (devIdx >= 0) {
         uint8_t dev_id = ui->comboControlDevice->currentData().toUInt();
-        client->setDirectFert(dev_id, true);
+        if (client->setDirectFert(dev_id, true)) {
+            // Refresh device info to update button highlighting
+            QTimer::singleShot(200, [this, dev_id]() {
+                updateControlTabDeviceInfo(dev_id);
+            });
+        }
     }
 }
 
@@ -300,7 +676,12 @@ void MainWindow::on_btnFertOff_clicked() {
     int devIdx = ui->comboControlDevice->currentIndex();
     if (devIdx >= 0) {
         uint8_t dev_id = ui->comboControlDevice->currentData().toUInt();
-        client->setDirectFert(dev_id, false);
+        if (client->setDirectFert(dev_id, false)) {
+            // Refresh device info to update button highlighting
+            QTimer::singleShot(200, [this, dev_id]() {
+                updateControlTabDeviceInfo(dev_id);
+            });
+        }
     }
 }
 
@@ -357,10 +738,10 @@ void MainWindow::on_btnApplyParameters_clicked() {
     uint8_t power = ui->spinPower->value();
     uint8_t interval = ui->spinInterval->value();
     
-    if (client->setParameter(dev_id, hmin, hmax, nmin, pmin, kmin, 
-                            fert_c, fert_v, power, interval)) {
-        QMessageBox::information(this, "Success", "Parameters updated");
-    }
+    // if (client->setParameter(dev_id, hmin, hmax, nmin, pmin, kmin, 
+    //                         fert_c, fert_v, power, interval)) {
+    //     QMessageBox::information(this, "Success", "Parameters updated");
+    // }
 }
 
 void MainWindow::on_btnChangePassword_clicked() {

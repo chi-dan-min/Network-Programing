@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1000</width>
-    <height>700</height>
+    <height>800</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -76,6 +76,9 @@
     <!-- Main Tabs -->
     <item>
      <widget class="QTabWidget" name="tabWidget">
+      <property name="maximumHeight">
+       <number>600</number>
+      </property>
       
       <!-- Tab 1: Monitoring -->
       <widget class="QWidget" name="tabMonitoring">
@@ -720,45 +723,60 @@
       </widget>
       
      </widget>
+     
     </item>
     
-    <!-- Packet Viewer -->
+    <!-- Bottom panels in 2 columns -->
     <item>
-     <widget class="QGroupBox" name="groupPacketViewer">
-      <property name="title">
-       <string>Packet Viewer (Debug)</string>
-      </property>
-      <property name="maximumHeight">
-       <number>200</number>
-      </property>
-      <layout class="QVBoxLayout">
-       <item>
-        <widget class="QTextEdit" name="packetView">
-         <property name="readOnly">
-          <bool>true</bool>
-         </property>
-         <property name="font">
-          <font>
-           <family>Courier New</family>
-           <pointsize>9</pointsize>
-          </font>
-         </property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
-    
-    <!-- Log View -->
-    <item>
-     <widget class="QTextEdit" name="logView">
-      <property name="readOnly">
-       <bool>true</bool>
-      </property>
-      <property name="maximumHeight">
-       <number>150</number>
-      </property>
-     </widget>
+     <layout class="QHBoxLayout">
+      <!-- Packet Viewer (Left) -->
+      <item>
+       <widget class="QGroupBox" name="groupPacketViewer">
+        <property name="title">
+         <string>Packet Viewer (Debug)</string>
+        </property>
+        <property name="maximumHeight">
+         <number>500</number>
+        </property>
+        <layout class="QVBoxLayout">
+         <item>
+          <widget class="QTextEdit" name="packetView">
+           <property name="readOnly">
+            <bool>true</bool>
+           </property>
+           <property name="font">
+            <font>
+             <family>Courier New</family>
+             <pointsize>9</pointsize>
+            </font>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      
+      <!-- Log View (Right) -->
+      <item>
+       <widget class="QGroupBox" name="groupLogView">
+        <property name="title">
+         <string>Application Logs</string>
+        </property>
+        <property name="maximumHeight">
+         <number>500</number>
+        </property>
+        <layout class="QVBoxLayout">
+         <item>
+          <widget class="QTextEdit" name="logView">
+           <property name="readOnly">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
     </item>
     
    </layout>

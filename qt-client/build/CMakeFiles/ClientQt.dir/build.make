@@ -180,10 +180,11 @@ ClientQt: CMakeFiles/ClientQt.dir/myclient.cpp.o
 ClientQt: CMakeFiles/ClientQt.dir/protocol.c.o
 ClientQt: CMakeFiles/ClientQt.dir/build.make
 ClientQt: /usr/lib/x86_64-linux-gnu/libQt6Widgets.so.6.4.2
+ClientQt: /usr/lib/x86_64-linux-gnu/libQt6Concurrent.so.6.4.2
 ClientQt: /usr/lib/x86_64-linux-gnu/libQt6Gui.so.6.4.2
-ClientQt: /usr/lib/x86_64-linux-gnu/libQt6Core.so.6.4.2
 ClientQt: /usr/lib/x86_64-linux-gnu/libGLX.so
 ClientQt: /usr/lib/x86_64-linux-gnu/libOpenGL.so
+ClientQt: /usr/lib/x86_64-linux-gnu/libQt6Core.so.6.4.2
 ClientQt: CMakeFiles/ClientQt.dir/link.txt
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/mnt/c/Users/LG/Desktop/networkprograming/qt-client/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_8) "Linking CXX executable ClientQt"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/ClientQt.dir/link.txt --verbose=$(VERBOSE)

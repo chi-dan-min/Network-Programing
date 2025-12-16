@@ -244,7 +244,7 @@ bool client_scan(int sockfd, uint32_t token, bool log)
     return true;
 }
 
-bool client_info(int sockfd, uint32_t token, bool log)
+bool client_info(int sockfd, uint32_t token, bool log, InfoResponse* out_info)
 {
     uint8_t send_buffer[MAX_BUFFER_SIZE];
     uint8_t recv_buffer[MAX_BUFFER_SIZE];
@@ -292,22 +292,29 @@ bool client_info(int sockfd, uint32_t token, bool log)
     case MSG_TYPE_INFO_SERVER:
     {
         InfoResponse &info = packet.data.info_res;
-        if(log) 
-            cout << "INFO RESPONSE: Found " << (int)info.num_gardens << " garden(s)\n";
-        // --- In danh sách Garden và Devices trực tiếp từ packet ---
-        for (int i = 0; i < info.num_gardens; ++i)
-        {
-            const GardenInfo &g = info.gardens[i];
-            cout << "\nGarden ID: " << (int)g.garden_id
-                 << " | Devices: " << (int)g.num_devices << "\n";
-
-            for (int d = 0; d < g.num_devices; ++d)
-            {
-                cout << "  - Device ID: " << (int)g.devices[d].device_id << "\n";
-            }
+        
+        // Store to output parameter if provided
+        if (out_info) {
+            *out_info = info;
         }
+        
+        // Console output ONLY if logging enabled
+        if(log) {
+            cout << "INFO RESPONSE: Found " << (int)info.num_gardens << " garden(s)\n";
+            
+            for (int i = 0; i < info.num_gardens; ++i)
+            {
+                const GardenInfo &g = info.gardens[i];
+                cout << "\nGarden ID: " << (int)g.garden_id
+                     << " | Devices: " << (int)g.num_devices << "\n";
 
-        cout << endl;
+                for (int d = 0; d < g.num_devices; ++d)
+                {
+                    cout << "  - Device ID: " << (int)g.devices[d].device_id << "\n";
+                }
+            }
+            cout << endl;
+        }
         break;
     }
 
@@ -325,6 +332,145 @@ bool client_info(int sockfd, uint32_t token, bool log)
 
     return true;
 }
+
+bool client_get_device_detail(int sockfd, uint32_t token, uint8_t device_id,
+                               DeviceDetailResponse* out_detail, bool log)
+{
+    uint8_t send_buffer[MAX_BUFFER_SIZE];
+    uint8_t recv_buffer[MAX_BUFFER_SIZE];
+    int packet_len;
+
+    memset(send_buffer, 0, sizeof(send_buffer));
+    memset(recv_buffer, 0, sizeof(recv_buffer));
+
+    // --- Send Device Detail Request ---
+    packet_len = serialize_device_detail_request(token, device_id, send_buffer);
+    if(log)
+        print_buffer("Client send: Device Detail Request", send_buffer, packet_len);
+
+    if (send(sockfd, send_buffer, packet_len, 0) <= 0)
+    {
+        cerr << "Failed to send Device Detail Request.\n";
+        return false;
+    }
+
+    // --- Receive Device Detail Response ---
+    packet_len = recv(sockfd, recv_buffer, MAX_BUFFER_SIZE, 0);
+    if (packet_len < 0)
+    {
+        perror("recv");
+        cerr << "Server disconnected or recv error.\n";
+        return false;
+    }
+    if (packet_len == 0)
+    {
+        cerr << "Server closed connection (recv returned 0).\n";
+        return false;
+    }
+    if(log)
+        print_buffer("Client receive: Device Detail Response", recv_buffer, packet_len);
+
+    ParsedPacket packet;
+    if (deserialize_packet(recv_buffer, packet_len, &packet) != 0)
+    {
+        cerr << "Failed to deserialize packet.\n";
+        return false;
+    }
+
+    switch (packet.type)
+    {
+    case MSG_TYPE_DEVICE_DETAIL_SERVER:
+    {
+        DeviceDetailResponse &detail = packet.data.device_detail_res;
+        
+        // Store to output parameter if provided
+        if (out_detail) {
+            *out_detail = detail;
+        }
+        
+        // Console output ONLY if logging enabled
+        if(log) {
+            cout << "\n=== DEVICE DETAIL (ID: " << (int)detail.device_id << ") ===\n";
+            
+            cout << "[SENSORS]\n";
+            if (detail.soil_moisture == SENSOR_NA_VALUE)
+                cout << "  Soil Moisture: N/A\n";
+            else
+                cout << "  Soil Moisture: " << (int)detail.soil_moisture << "%\n";
+            
+            cout << "  NPK Values:    ";
+            if (detail.npk_n == SENSOR_NA_VALUE)
+                cout << "N/A, ";
+            else
+                cout << "N=" << (int)detail.npk_n << ", ";
+            
+            if (detail.npk_p == SENSOR_NA_VALUE)
+                cout << "N/A, ";
+            else
+                cout << "P=" << (int)detail.npk_p << ", ";
+            
+            if (detail.npk_k == SENSOR_NA_VALUE)
+                cout << "N/A\n";
+            else
+                cout << "K=" << (int)detail.npk_k << "\n";
+            
+            cout << "[CONFIG]\n";
+            cout << "  Fertilizer:    Conc=" << (int)detail.fert_concentration 
+                 << "g/L, Vol=" << (int)detail.fert_volume << "L\n";
+            cout << "  Power (Lamp):  " << (int)detail.power_lamp << "%\n";
+            cout << "  Interval T:    " << detail.interval_time << " mins\n";
+            
+            cout << "[AUTO SCHEDULES]\n";
+            if (detail.num_water_times > 0) {
+                cout << "  Water Times:\n";
+                for (int i = 0; i < detail.num_water_times; i++) {
+                    cout << "    - " << format_timestamp(detail.water_times[i]) << "\n";
+                }
+            } else {
+                cout << "  Water Times: None\n";
+            }
+            
+            if (detail.num_light_schedules > 0) {
+                cout << "  Lighting:\n";
+                for (int i = 0; i < detail.num_light_schedules; i++) {
+                    cout << "    - ON:  " << format_timestamp(detail.light_on_times[i]) << "\n";
+                    cout << "      OFF: " << format_timestamp(detail.light_off_times[i]) << "\n";
+                }
+            } else {
+                cout << "  Lighting: None\n";
+            }
+            
+            cout << "[THRESHOLDS]\n";
+            cout << "  Humidity:      " << (int)detail.humidity_min << "% - " 
+                 << (int)detail.humidity_max << "%\n";
+            cout << "  NPK Min:       N=" << (int)detail.npk_n_min 
+                 << ", P=" << (int)detail.npk_p_min 
+                 << ", K=" << (int)detail.npk_k_min << "\n";
+            
+            cout << "[DIRECT CONTROL]\n";
+            cout << "  Pump:  " << (detail.direct_pump ? "ON" : "OFF") << "\n";
+            cout << "  Light: " << (detail.direct_light ? "ON" : "OFF") << "\n";
+            cout << "  Fert:  " << (detail.direct_fert ? "ON" : "OFF") << "\n";
+            cout << endl;
+        }
+        break;
+    }
+
+    case MSG_TYPE_CMD_RESPONSE:
+    {
+        cout << "Device Detail request failed. Server returned status: ";
+        print_status_message(packet.data.cmd_response.status_code);
+        return false;
+    }
+
+    default:
+        cout << "Unexpected packet type: " << (int)packet.type << endl;
+        return false;
+    }
+
+    return true;
+}
+
 
 bool client_add_garden(int sockfd, uint32_t token)
 {

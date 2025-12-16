@@ -980,6 +980,142 @@ void handle_settings_request(int client_fd, const SettingsRequest& req,
 
     
 }
+
+void handle_device_detail_request(int client_fd, const DeviceDetailRequest &req,
+                                   uint8_t *send_buffer, const uint8_t *recv_buffer,
+                                   int &packet_len)
+{
+    cout << "Handling device detail request from token: " << req.token << ", DeviceID: " << (int)req.device_id << endl;
+    print_buffer("Server receive: Device Detail Request", recv_buffer, packet_len);
+
+    // Authenticate token
+    App *app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        print_buffer("Server send: CMD_RESPONSE (Invalid Token)", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    // Check device ownership
+    if (!check_device_ownership(app->appID, req.device_id)) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_DEVICE, send_buffer);
+        print_buffer("Server send: CMD_RESPONSE (Invalid Device)", send_buffer, packet_len);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    // Build DeviceDetailResponse
+    DeviceDetailResponse detail_res;
+    memset(&detail_res, 0, sizeof(detail_res));
+    
+    {
+        lock_guard<mutex> lock(sensor_devices_mutex);
+        
+        // Check if device exists in sensor_devices
+        if (sensor_devices.find(req.device_id) == sensor_devices.end()) {
+            packet_len = serialize_cmd_response(STATUS_ERR_INVALID_DEVICE, send_buffer);
+            print_buffer("Server send: CMD_RESPONSE (Device Not Found)", send_buffer, packet_len);
+            send(client_fd, send_buffer, packet_len, 0);
+            return;
+        }
+        
+        DeviceSensor &dev = sensor_devices[req.device_id];
+        
+        // Device ID
+        detail_res.device_id = req.device_id;
+        
+        // Sensor Data
+        detail_res.soil_moisture = dev.soil_moisture;
+        detail_res.npk_n = dev.N;
+        detail_res.npk_p = dev.P;
+        detail_res.npk_k = dev.K;
+        
+        // Config Parameters
+        detail_res.fert_concentration = dev.fert_C;
+        detail_res.fert_volume = dev.fert_V;
+        detail_res.power_lamp = dev.power;
+        detail_res.interval_time = dev.T;
+        
+        // Thresholds
+        detail_res.humidity_min = dev.Hmin;
+        detail_res.humidity_max = dev.Hmax;
+        detail_res.npk_n_min = dev.Nmin;
+        detail_res.npk_p_min = dev.Pmin;
+        detail_res.npk_k_min = dev.Kmin;
+        
+        // Water Schedule
+        detail_res.num_water_times = min((size_t)MAX_SCHEDULE_SLOTS, dev.watering_times.size());
+        for (int i = 0; i < detail_res.num_water_times; i++) {
+            detail_res.water_times[i] = dev.watering_times[i];
+        }
+        
+        // Light Schedule
+        detail_res.num_light_schedules = min((size_t)MAX_SCHEDULE_SLOTS, dev.lighting_times.size());
+        for (int i = 0; i < detail_res.num_light_schedules; i++) {
+            detail_res.light_on_times[i] = dev.lighting_times[i].first;
+            detail_res.light_off_times[i] = dev.lighting_times[i].second;
+        }
+        
+        // Direct Control States
+        detail_res.direct_pump = dev.pump_on;
+        detail_res.direct_light = dev.light_on;
+        detail_res.direct_fert = dev.fert_on;
+    }
+    
+    // Manually serialize response
+    int offset = 0;
+    send_buffer[offset++] = MSG_TYPE_DEVICE_DETAIL_SERVER;
+    int length_offset = offset++;
+    
+    send_buffer[offset++] = detail_res.device_id;
+    send_buffer[offset++] = detail_res.soil_moisture;
+    send_buffer[offset++] = detail_res.npk_n;
+    send_buffer[offset++] = detail_res.npk_p;
+    send_buffer[offset++] = detail_res.npk_k;
+    send_buffer[offset++] = detail_res.fert_concentration;
+    send_buffer[offset++] = detail_res.fert_volume;
+    send_buffer[offset++] = detail_res.power_lamp;
+    uint16_t interval_net = htons(detail_res.interval_time);
+    memcpy(&send_buffer[offset], &interval_net, 2);
+    offset += 2;
+    
+    send_buffer[offset++] = detail_res.humidity_min;
+    send_buffer[offset++] = detail_res.humidity_max;
+    send_buffer[offset++] = detail_res.npk_n_min;
+    send_buffer[offset++] = detail_res.npk_p_min;
+    send_buffer[offset++] = detail_res.npk_k_min;
+    
+    send_buffer[offset++] = detail_res.num_water_times;
+    for (int i = 0; i < detail_res.num_water_times; i++) {
+        uint32_t time_net = htonl(detail_res.water_times[i]);
+        memcpy(&send_buffer[offset], &time_net, 4);
+        offset += 4;
+    }
+    
+    send_buffer[offset++] = detail_res.num_light_schedules;
+    for (int i = 0; i < detail_res.num_light_schedules; i++) {
+        uint32_t on_net = htonl(detail_res.light_on_times[i]);
+        memcpy(&send_buffer[offset], &on_net, 4);
+        offset += 4;
+        uint32_t off_net = htonl(detail_res.light_off_times[i]);
+        memcpy(&send_buffer[offset], &off_net, 4);
+        offset += 4;
+    }
+    
+    send_buffer[offset++] = detail_res.direct_pump;
+    send_buffer[offset++] = detail_res.direct_light;
+    send_buffer[offset++] = detail_res.direct_fert;
+    
+    send_buffer[length_offset] = offset - 2;
+    packet_len = offset;
+    
+    print_buffer("Server send: Device Detail Response", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+    
+    cout << "Device detail sent for DeviceID=" << (int)req.device_id << endl;
+}
+
 bool check_device_ownership(const string& appID, uint8_t dev_id) {
     lock_guard<mutex> lock_dev(devices_mutex);
     lock_guard<mutex> lock_gar(gardens_mutex);
@@ -1252,6 +1388,10 @@ void client_handler(int client_fd)
                     handle_settings_request(client_fd, packet.data.setting_request, send_buffer, recv_buffer, packet_len);
                     break;
 
+                case MSG_TYPE_DEVICE_DETAIL_CLIENT:
+                    handle_device_detail_request(client_fd, packet.data.device_detail_req, send_buffer, recv_buffer, packet_len);
+                    break;
+
                 default:
                     handle_unknown_packet(client_fd, packet.type, send_buffer, packet_len);
                     break;
@@ -1312,7 +1452,7 @@ void client_handler(int client_fd)
 void seed()
 {
     // --- 1. Read apps.txt ---
-    ifstream apps_file("./apps.txt");
+    ifstream apps_file("../apps.txt");
     if (!apps_file)
     {
         cerr << "Cannot open apps.txt!" << endl;
@@ -1337,7 +1477,7 @@ void seed()
     }
 
     // --- 2. Read garden.txt ---
-    ifstream garden_file("./garden.txt");
+    ifstream garden_file("../garden.txt");
     if (!garden_file)
     {
         cerr << "Cannot open garden.txt!" << endl;
@@ -1363,7 +1503,7 @@ void seed()
     }
 
     // --- 3. Read device.txt ---
-    ifstream device_file("./device.txt");
+    ifstream device_file("../device.txt");
     if (!device_file)
     {
         cerr << "Cannot open device.txt!" << endl;
