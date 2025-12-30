@@ -29,6 +29,12 @@ extern "C" {
 #define MSG_TYPE_DEVICE_ADD                 90          // 0x5A 
 #define MSG_TYPE_DEVICE_DEL                 91          // 0x5B 
 #define MSG_TYPE_DATA                       100         // 0x64
+#define MSG_TYPE_GET_STATUS                 110         // 0x6E
+#define MSG_TYPE_STATUS_RESPONSE            111         // 0x6F
+#define MSG_TYPE_GET_SCHED_PUMP             112         // 0x70
+#define MSG_TYPE_SCHED_PUMP_RESPONSE        113         // 0x71
+#define MSG_TYPE_GET_SCHED_LIGHT            114         // 0x72
+#define MSG_TYPE_SCHED_LIGHT_RESPONSE       115         // 0x73
 #define MSG_TYPE_ALERT                      200         // 0xC8
 #define MSG_TYPE_CMD_RESPONSE               254         // 0xFE
 
@@ -236,6 +242,28 @@ typedef struct {
     uint8_t Hmin, Hmax;
     uint8_t Nmin, Pmin, Kmin;
 } SettingsResponse;
+
+// 19. Get Status
+typedef struct {
+    uint32_t token;
+    uint8_t dev_id;
+} GetStatusRequest;
+
+typedef struct {
+    uint8_t dev_id;
+    uint8_t pump_status; // 0 or 1
+    uint8_t light_status; // 0 or 1
+    uint8_t fert_status; // 0 or 1
+} StatusResponse;
+
+// 20. Get Sched
+typedef struct {
+    uint32_t token;
+    uint8_t dev_id;
+} GetSchedRequest; // Used for both Pump and Light sched request
+
+// Response reuses SetPumpSchedule / SetLightSchedule structs just with different MSG_TYPE
+
 // Cấu trúc packet tổng quát sau khi giải gói tin
 typedef struct {
     uint8_t type;
@@ -263,6 +291,11 @@ typedef struct {
         SetDirectFert set_direct_fert;
         SettingsRequest setting_request;
         SettingsResponse setting_response;
+        GetStatusRequest get_status_req;
+        StatusResponse status_res;
+        GetSchedRequest get_sched_req;
+        // set_pump_schedule used for SCHED_PUMP_RESPONSE
+        // set_light_schedule used for SCHED_LIGHT_RESPONSE
     } data;
 } ParsedPacket;
 
@@ -450,6 +483,24 @@ int serialize_settings_request(uint32_t token, uint8_t dev_id, uint8_t* out_buff
  * @return Number of bytes written to buffer (always 11)
  */
 int serialize_settings_response(const SettingsResponse* settings, uint8_t* out_buffer);
+
+/**
+ * @brief Serialize Get Status Request
+ */
+int serialize_get_status_request(uint32_t token, uint8_t dev_id, uint8_t* out_buffer);
+
+/**
+ * @brief Serialize Status Response
+ */
+int serialize_status_response(const StatusResponse* status, uint8_t* out_buffer);
+
+/**
+ * @brief Serialize Get Pump/Light Schedule Request
+ */
+int serialize_get_sched_request(uint32_t token, uint8_t dev_id, uint8_t type, uint8_t* out_buffer);
+
+// Responses for schedule will use serialize_set_pump_schedule / serialize_set_light_schedule with new MSG_TYPE
+
 // --- Khai báo hàm GIẢI GÓI TIN (Deserialization) ---
 
 /**

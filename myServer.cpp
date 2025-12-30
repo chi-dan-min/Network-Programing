@@ -232,7 +232,7 @@ void tick_event()
 
                 // 1. INTERVAL DATA 
                 dev.time_count++; 
-                if (dev.time_count >= dev.T * 60) 
+                if (dev.time_count >= dev.T * 10) 
                 {
                     if (app_sockfd != -1) {
                         IntervalData data{};
@@ -1140,6 +1140,115 @@ void handle_set_direct_fert(int client_fd, const SetDirectFert &req,
     send(client_fd, send_buffer, packet_len, 0);
 }
 
+void handle_get_status_request(int client_fd, const GetStatusRequest &req,
+                               uint8_t *send_buffer, const uint8_t *recv_buffer,
+                               int &packet_len)
+{
+    cout << "Handling get status request from token: " << req.token << endl;
+    print_buffer("Server receive: Get Status Request", recv_buffer, packet_len);
+
+    App* app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    if (!check_device_ownership(app->appID, req.dev_id)) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_DEVICE, send_buffer);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+    
+    StatusResponse resp;
+    resp.dev_id = req.dev_id;
+    {
+        lock_guard<mutex> lock(sensor_devices_mutex);
+        DeviceSensor &d = sensor_devices[req.dev_id];
+        resp.pump_status = d.pump_on;
+        resp.light_status = d.light_on;
+        resp.fert_status = d.fert_on;
+    }
+
+    packet_len = serialize_status_response(&resp, send_buffer);
+    print_buffer("Server send: Status Response", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+}
+
+void handle_get_sched_pump(int client_fd, const GetSchedRequest &req,
+                             uint8_t *send_buffer, const uint8_t *recv_buffer,
+                             int &packet_len)
+{
+    cout << "Handling get schedule PUMP request from token: " << req.token << endl;
+    print_buffer("Server receive: Get Sched Pump Request", recv_buffer, packet_len);
+
+    App* app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+    if (!check_device_ownership(app->appID, req.dev_id)) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_DEVICE, send_buffer);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    vector<uint32_t> times;
+    {
+        lock_guard<mutex> lock(sensor_devices_mutex);
+        times = sensor_devices[req.dev_id].watering_times;
+    }
+
+    // Reuse serialize_set_pump_schedule but change type manually or use a new function?
+    // Wait, the response MSG_TYPE is MSG_TYPE_SCHED_PUMP_RESPONSE (113)
+    // But serialize_set_pump_schedule uses MSG_TYPE_SET_PUMP_SCHEDULE (50)
+    // I need to manually set the type or make a new serialize function?
+    // Or I can modify serialize function to take type.
+    // For now, I will use serialize_set_pump_schedule and OVERWRITE index 0 with correct type.
+    
+    packet_len = serialize_set_pump_schedule(req.token, req.dev_id, (uint8_t)times.size(), times.data(), send_buffer);
+    send_buffer[0] = MSG_TYPE_SCHED_PUMP_RESPONSE; // Override type
+
+    print_buffer("Server send: Sched Pump Response", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+}
+
+void handle_get_sched_light(int client_fd, const GetSchedRequest &req,
+                             uint8_t *send_buffer, const uint8_t *recv_buffer,
+                             int &packet_len)
+{
+    cout << "Handling get schedule LIGHT request from token: " << req.token << endl;
+    print_buffer("Server receive: Get Sched Light Request", recv_buffer, packet_len);
+
+    App* app = findAppByToken(req.token);
+    if (!app) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_TOKEN, send_buffer);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+    if (!check_device_ownership(app->appID, req.dev_id)) {
+        packet_len = serialize_cmd_response(STATUS_ERR_INVALID_DEVICE, send_buffer);
+        send(client_fd, send_buffer, packet_len, 0);
+        return;
+    }
+
+    vector<uint32_t> times;
+    {
+        lock_guard<mutex> lock(sensor_devices_mutex);
+        for(auto& pair : sensor_devices[req.dev_id].lighting_times) {
+            times.push_back(pair.first);
+            times.push_back(pair.second);
+        }
+    }
+
+    packet_len = serialize_set_light_schedule(req.token, req.dev_id, (uint8_t)times.size(), times.data(), send_buffer);
+    send_buffer[0] = MSG_TYPE_SCHED_LIGHT_RESPONSE; // Override type
+
+    print_buffer("Server send: Sched Light Response", send_buffer, packet_len);
+    send(client_fd, send_buffer, packet_len, 0);
+}
+
 void client_handler(int client_fd)
 {
     uint8_t send_buffer[MAX_BUFFER_SIZE];
@@ -1217,6 +1326,18 @@ void client_handler(int client_fd)
 
                 case MSG_TYPE_SETTINGS_CLIENT:
                     handle_settings_request(client_fd, packet.data.setting_request, send_buffer, recv_buffer, packet_len);
+                    break;
+                
+                case MSG_TYPE_GET_STATUS:
+                    handle_get_status_request(client_fd, packet.data.get_status_req, send_buffer, recv_buffer, packet_len);
+                    break;
+
+                case MSG_TYPE_GET_SCHED_PUMP:
+                    handle_get_sched_pump(client_fd, packet.data.get_sched_req, send_buffer, recv_buffer, packet_len);
+                    break;
+
+                case MSG_TYPE_GET_SCHED_LIGHT:
+                    handle_get_sched_light(client_fd, packet.data.get_sched_req, send_buffer, recv_buffer, packet_len);
                     break;
 
                 default:

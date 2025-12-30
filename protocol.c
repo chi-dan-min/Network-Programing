@@ -383,6 +383,39 @@ int serialize_settings_response(const SettingsResponse* settings, uint8_t* out_b
     // Trả về tổng kích thước packet (2 header + 9 payload)
     return 11; 
 }
+
+int serialize_get_status_request(uint32_t token, uint8_t dev_id, uint8_t* out_buffer) {
+    out_buffer[0] = MSG_TYPE_GET_STATUS; 
+    out_buffer[1] = 5; // Token(4) + dev_id(1)
+
+    uint32_t net_token = htonl(token);
+    memcpy(out_buffer + 2, &net_token, 4);
+    out_buffer[6] = dev_id;
+    return 7;
+}
+
+int serialize_status_response(const StatusResponse* status, uint8_t* out_buffer) {
+    out_buffer[0] = MSG_TYPE_STATUS_RESPONSE;
+    out_buffer[1] = 4; // dev_id(1) + pump(1) + light(1) + fert(1)
+    
+    out_buffer[2] = status->dev_id;
+    out_buffer[3] = status->pump_status;
+    out_buffer[4] = status->light_status;
+    out_buffer[5] = status->fert_status;
+    return 6; 
+}
+
+int serialize_get_sched_request(uint32_t token, uint8_t dev_id, uint8_t type, uint8_t* out_buffer) {
+    if(type == MSG_TYPE_GET_SCHED_PUMP) out_buffer[0] = MSG_TYPE_GET_SCHED_PUMP;
+    else out_buffer[0] = MSG_TYPE_GET_SCHED_LIGHT;
+    
+    out_buffer[1] = 5; // Token(4) + dev_id(1)
+    
+    uint32_t net_token = htonl(token);
+    memcpy(out_buffer + 2, &net_token, 4);
+    out_buffer[6] = dev_id;
+    return 7;
+}
 // DESERIALIZATION
 int deserialize_packet(const uint8_t *in_buffer, int buffer_len, ParsedPacket *out_packet)
 {
@@ -779,6 +812,74 @@ int deserialize_packet(const uint8_t *in_buffer, int buffer_len, ParsedPacket *o
         out_packet->data.setting_response.Nmin   = payload[6];
         out_packet->data.setting_response.Pmin   = payload[7];
         out_packet->data.setting_response.Kmin   = payload[8];
+        break;
+    }
+    //------------------------------
+    // 110 - Get Status
+    //------------------------------
+    case MSG_TYPE_GET_STATUS:
+    {
+        if (payload_len != 5) return -1; 
+        uint32_t net_token;
+        memcpy(&net_token, payload, 4);
+        out_packet->data.get_status_req.token = ntohl(net_token);
+        out_packet->data.get_status_req.dev_id = payload[4];
+        break;
+    }
+    //------------------------------
+    // 111 - Status Response
+    //------------------------------
+    case MSG_TYPE_STATUS_RESPONSE:
+    {
+        if (payload_len != 4) return -1;
+        out_packet->data.status_res.dev_id = payload[0];
+        out_packet->data.status_res.pump_status = payload[1];
+        out_packet->data.status_res.light_status = payload[2];
+        out_packet->data.status_res.fert_status = payload[3];
+        break;
+    }
+    //------------------------------
+    // 112 & 114 - Get Sched Pump/Light
+    //------------------------------
+    case MSG_TYPE_GET_SCHED_PUMP:
+    case MSG_TYPE_GET_SCHED_LIGHT:
+    {
+        if (payload_len != 5) return -1; 
+        uint32_t net_token;
+        memcpy(&net_token, payload, 4);
+        out_packet->data.get_sched_req.token = ntohl(net_token);
+        out_packet->data.get_sched_req.dev_id = payload[4];
+        break;
+    }
+    //------------------------------
+    // 113 & 115 - Sched Response (Uses SetSchedule Struct)
+    //------------------------------
+    case MSG_TYPE_SCHED_PUMP_RESPONSE: 
+    {
+        if (payload_len < 6) return -1;
+        out_packet->data.set_pump_schedule.token = ntohl(*(uint32_t *)payload);
+        out_packet->data.set_pump_schedule.dev_id = payload[4];
+        out_packet->data.set_pump_schedule.quantity_time = payload[5];
+         if (payload_len != 6 + out_packet->data.set_pump_schedule.quantity_time * 4)
+            return -1;
+        for (int i = 0; i < out_packet->data.set_pump_schedule.quantity_time; i++)
+        {
+            out_packet->data.set_pump_schedule.time[i] = ntohl(*(uint32_t *)(payload + 6 + i * 4));
+        }
+        break;
+    }
+    case MSG_TYPE_SCHED_LIGHT_RESPONSE: 
+    {
+        if (payload_len < 6) return -1;
+        out_packet->data.set_light_schedule.token = ntohl(*(uint32_t *)payload);
+        out_packet->data.set_light_schedule.dev_id = payload[4];
+        out_packet->data.set_light_schedule.quantity_time = payload[5];
+         if (payload_len != 6 + out_packet->data.set_light_schedule.quantity_time * 4)
+            return -1;
+        for (int i = 0; i < out_packet->data.set_light_schedule.quantity_time; i++)
+        {
+            out_packet->data.set_light_schedule.time[i] = ntohl(*(uint32_t *)(payload + 6 + i * 4));
+        }
         break;
     }
     //------------------------------
